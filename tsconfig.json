@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "types": ["node", "express", "multer"],
+    "module": "CommonJS",
+    "target": "ES2020",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "./dist",
+    "sourceMap": true,
+    "strict": true,
+    "skipLibCheck": true,
+  }
+}
