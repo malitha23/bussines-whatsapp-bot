@@ -23,10 +23,9 @@ import { OrderItem } from './entities/order-item.entity';
 import { OrderCancellation } from './entities/order-cancellation.entity';
 import { BusinessPaymentOption } from './entities/business-payment-options.entity';
 import { BusinessDeliveryFee } from './entities/business-delivery-fee.entity';
-import { ConfigModule } from '@nestjs/config';
+
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: process.env.DB_HOST || 'localhost',
