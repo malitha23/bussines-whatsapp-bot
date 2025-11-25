@@ -29,152 +29,153 @@ export class WhatsAppClientManager {
   }
 
   async createClient(businessId: number): Promise<{
-    status: 'success' | 'error';
-    message: string;
-    connected: boolean;
-    qr?: string;
-    client: Client;
-  }> {
+  status: 'success' | 'error';
+  message: string;
+  connected: boolean;
+  qr?: string;
+  client: Client;
+}> {
+  let client: Client;
+  let currentQR: string | undefined;
+  let isConnected = false;
 
-    if (this.clients.has(businessId)) {
-      const existingClient = this.clients.get(businessId)!;
-      const isReady = !!existingClient.info?.wid;
+  // Reuse existing client if available
+  if (this.clients.has(businessId)) {
+    client = this.clients.get(businessId)!;
+    const isReady = !!client.info?.wid;
+
+    if (isReady) {
       return {
         status: 'success',
         message: 'Client already exists',
-        connected: isReady,
-        client: existingClient
+        connected: true,
+        client,
       };
     }
 
-    const sessionPath = this.getSessionPath(businessId);
-    let isConnected = false;
-
-    const client = new Client({
-      authStrategy: new LocalAuth({ clientId: `business_${businessId}` }),
-      puppeteer: {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-extensions',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-infobars',
-          '--disable-features=site-per-process',
-          '--disable-features=NetworkService',
-          '--ignore-certificate-errors',
-          '--ignore-certificate-errors-spki-list',
-          '--mute-audio',
-          '--disable-notifications',
-        ],
-        ignoreHTTPSErrors: true,
-      },
-      takeoverOnConflict: true,
-      restartOnAuthFail: true,
-    });
-
-
-
-    let currentQR: string | undefined;
-    let isReinitializing: boolean = false;
-
-    client.on('qr', (qr) => {
-      currentQR = qr;
-      this.logger.log(`📱 QR scan required for Business ${businessId}`);
-      this.gateway?.sendQR(businessId, qr);
-    });
-
-    client.on('authenticated', async () => {
-      this.logger.log(`🔐 Authenticated - Business ${businessId}`);
-      this.gateway?.sendAuthenticated(businessId);
-
-      // Patch Puppeteer to prevent Target closed
-      try {
-        const page = client.pupPage ?? (client as any)._page;
-        if (!page) return;
-
-        const cdp = await page.target().createCDPSession();
-        cdp.on('Network.loadingFinished', (e: { requestId: any; }) => {
-          if (e.requestId) delete e.requestId;
-        });
-        await cdp.send('Network.enable');
-      } catch (err) {
-        this.logger.warn(`CDP patch failed: ${err}`);
+    // Try to reinitialize existing client without deleting
+    this.logger.log(`♻️ Reinitializing client for Business ${businessId}`);
+    try {
+      await client.initialize();
+      if (client.info?.wid) {
+        isConnected = true;
+        await this.saveSessionStatus(businessId, 'connected');
+        return {
+          status: 'success',
+          message: 'Client reconnected',
+          connected: true,
+          client,
+        };
       }
-    });
-
-    client.on('ready', async () => {
-      isConnected = true;
-      this.logger.log(`✅ WhatsApp READY - Business  ${businessId}`);
-      await this.saveSessionStatus(businessId, 'connected');
-      this.gateway?.sendReady(businessId);
-    });
-
-    client.on('disconnected', async (reason) => {
-      this.logger.warn(`⚠️ WhatsApp client disconnected for Business ${businessId}: ${reason}`);
-      await this.saveSessionStatus(businessId, 'disconnected');
-      this.gateway?.sendDisconnected(businessId);
-
-      this.handleClientReinitialization(client, businessId);
-    });
-
-    // Initialize client safely with retry
-    for (let i = 0; i < 3; i++) {
-      try {
-        await client.initialize();
-        break;
-      } catch (err: any) {
-        if (err.code === 'EBUSY' && i < 2) {
-          this.logger.warn(`EBUSY initializing client, retry ${i + 1}`);
-          await new Promise(res => setTimeout(res, 500));
-        } else {
-          return {
-            status: 'error',
-            message: `Failed to initialize client: ${err.message || err}`,
-            connected: false,
-            client,
-          };
-        }
-      }
+    } catch (err) {
+      this.logger.warn(`Failed to reinitialize client, creating new one: ${err}`);
+      this.clients.delete(businessId);
     }
-
-    this.clients.set(businessId, client);
-
-    return {
-      status: 'success',
-      message: 'Client initialized',
-      connected: isConnected,
-      qr: currentQR,
-      client,
-    };
   }
 
-  // Function to handle client reinitialization
+  // Create new client if none exists or reinit failed
+  client = new Client({
+    authStrategy: new LocalAuth({ clientId: `business_${businessId}` }),
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-infobars',
+        '--disable-features=site-per-process',
+        '--disable-features=NetworkService',
+        '--ignore-certificate-errors',
+        '--ignore-certificate-errors-spki-list',
+        '--mute-audio',
+        '--disable-notifications',
+      ],
+      ignoreHTTPSErrors: true,
+    },
+    takeoverOnConflict: true,
+    restartOnAuthFail: true,
+  });
 
-  async handleClientReinitialization(client: Client, businessId: number) {
-    // 1. Immediately remove the failing client from the map
-    this.clients.delete(businessId);
+  // Event listeners
+  client.on('qr', (qr) => {
+    currentQR = qr;
+    this.logger.log(`📱 QR scan required for Business ${businessId}`);
+    this.gateway?.sendQR(businessId, qr);
+  });
 
-    // 2. Gracefully attempt to destroy the client one last time (best effort)
+  client.on('authenticated', async () => {
+    this.logger.log(`🔐 Authenticated - Business ${businessId}`);
+    this.gateway?.sendAuthenticated(businessId);
+  });
+
+  client.on('ready', async () => {
+    isConnected = true;
+    this.logger.log(`✅ WhatsApp READY - Business ${businessId}`);
+    await this.saveSessionStatus(businessId, 'connected');
+    this.gateway?.sendReady(businessId);
+  });
+
+  client.on('disconnected', async (reason) => {
+    this.logger.warn(`⚠️ WhatsApp disconnected - Business ${businessId}: ${reason}`);
+    await this.saveSessionStatus(businessId, 'disconnected');
+    this.gateway?.sendDisconnected(businessId);
+    this.handleClientReinitialization(client, businessId);
+  });
+
+  // Initialize with retry (EBUSY safe)
+  for (let i = 0; i < 3; i++) {
     try {
-      await client.destroy();
-      this.logger.log(`Old client destroyed after disconnection: ${businessId}`);
-    } catch (err) {
-      this.logger.error(`Error destroying old client ${businessId}: ${err}`);
-      // This is often where the EBUSY happens, but we continue anyway.
+      await client.initialize();
+      break;
+    } catch (err: any) {
+      if (err.code === 'EBUSY' && i < 2) {
+        this.logger.warn(`EBUSY initializing client, retry ${i + 1}`);
+        await new Promise(res => setTimeout(res, 1000));
+      } else {
+        return {
+          status: 'error',
+          message: `Failed to initialize client: ${err.message || err}`,
+          connected: false,
+          client,
+        };
+      }
     }
+  }
 
-    // 3. Create a NEW client (which is handled by your createClient logic)
-    this.logger.log(`Attempting to reinitialize new client for ${businessId}...`);
-    await this.createClient(businessId);
+  // Save client in map
+  this.clients.set(businessId, client);
+
+  return {
+    status: 'success',
+    message: 'Client initialized',
+    connected: isConnected,
+    qr: currentQR,
+    client,
   };
+}
 
-  // Function to reset the client
+// Safe reinit on disconnect
+async handleClientReinitialization(client: Client, businessId: number) {
+  this.logger.log(`♻️ Reinitializing WhatsApp client for Business ${businessId}`);
+  try {
+    await client.destroy();
+  } catch (err) {
+    this.logger.warn(`Error destroying client: ${err}`);
+  }
+
+  // Short delay to release file locks (important on VPS)
+  await new Promise(res => setTimeout(res, 1500));
+
+  // Recreate client
+  await this.createClient(businessId);
+}
+
   // Function to reset the client
   async resetClient(client: Client) {
     try {

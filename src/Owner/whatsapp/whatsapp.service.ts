@@ -27,15 +27,15 @@ export class WhatsAppService {
 
     const clientResult = await this.clientManager.createClient(businessId); // Get structured response
 
-    const client: Client = clientResult.client!;
+    const client: Client = clientResult.client;
 
     // Bind message listener
     client.removeAllListeners('message');
     client.on('message', (msg) => {
       (async () => {
         try {
-          const contact = await msg.getContact();
-          const name = contact.pushname || contact.name || contact.number;
+ 
+          const name = msg.getContact.name;
           const text = msg.body?.trim();
           await this.messageHandler.handleIncomingMessage(
             client,
@@ -50,6 +50,7 @@ export class WhatsAppService {
         }
       })();
     });
+
 
 
     this.logger.log(`✅ Client manually initialized for Business ID: ${businessId}`);
