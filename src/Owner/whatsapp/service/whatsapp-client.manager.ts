@@ -44,11 +44,11 @@ export class WhatsAppClientManager {
       if (!isReady) {
         // Client exists but not ready → attempt auto reconnect without QR
         this.logger.log(`⏳ Client exists but not ready, attempting auto reconnect - Business ${businessId}`);
-        try {
-          await existingClient.initialize(); // use existing LocalAuth session
-        } catch (err) {
-          this.logger.warn(`⚠️ Auto reconnect failed, QR scan may be required: ${err}`);
-        }
+
+        existingClient.initialize().catch(err => {
+          this.logger.warn(`⚠️ Auto reconnect failed for Business ${businessId}: ${err}`);
+        });
+
 
         return {
           status: 'success',
