@@ -21,47 +21,39 @@ export class WhatsAppService {
     const business = await this.businessRepo.findOne({
       where: { id: businessId, owner: { id: ownerId } },
     });
+    if (!business) throw new NotFoundException('Business not found or not owned by you');
 
-    if (!business)
-      throw new NotFoundException('Business not found or not owned by you');
+    // Fast return if already connected
+    if (this.clientManager.isConnected(businessId)) {
+      return { status: 'success', message: 'Client already connected', connected: true, qr: null };
+    }
 
-    const clientResult = await this.clientManager.createClient(businessId); // Get structured response
+    // Otherwise, create or reconnect
+    const clientResult = await this.clientManager.createClient(businessId);
 
-    const client: Client = clientResult.client;
-
-    // Bind message listener
+    // Bind message listener only once
+    const client = clientResult.client;
     client.removeAllListeners('message');
     client.on('message', (msg) => {
       (async () => {
         try {
- 
           const name = msg.getContact.name;
           const text = msg.body?.trim();
-          await this.messageHandler.handleIncomingMessage(
-            client,
-            businessId,
-            msg.from,
-            name,
-            text,
-            msg,
-          );
+          await this.messageHandler.handleIncomingMessage(client, businessId, msg.from, name, text, msg);
         } catch (err) {
           this.logger.error(`Message handling error: ${err}`);
         }
       })();
     });
 
-
-
-    this.logger.log(`✅ Client manually initialized for Business ID: ${businessId}`);
-
     return {
-      status: 'success',
-      message: 'Client initialized',
-      connected: clientResult.connected, 
+      status: clientResult.status,
+      message: clientResult.message,
+      connected: clientResult.connected,
       qr: clientResult.qr || null,
     };
   }
+
 
 }
 

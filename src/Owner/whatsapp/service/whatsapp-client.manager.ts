@@ -22,10 +22,19 @@ export class WhatsAppClientManager {
       private gateway: WhatsAppGateway
     ) { }
 
-  private getSessionPath(businessId: number): string {
+  private getSessionPath(businessId: number) {
     const basePath = path.join(process.cwd(), 'whatsapp-sessions');
     if (!fs.existsSync(basePath)) fs.mkdirSync(basePath, { recursive: true });
     return path.join(basePath, `business_${businessId}`);
+  }
+
+  isConnected(businessId: number): boolean {
+    const client = this.clients.get(businessId);
+    return !!(client && client.info?.me);
+  }
+
+  getClient(businessId: number): Client | null {
+    return this.clients.get(businessId) || null;
   }
 
   async createClient(businessId: number): Promise<{
@@ -35,179 +44,79 @@ export class WhatsAppClientManager {
     qr?: string;
     client: Client;
   }> {
-
-    // Check if client already exists
     if (this.clients.has(businessId)) {
       const existingClient = this.clients.get(businessId)!;
-      const isReady = !!existingClient.info?.wid;
-
-      if (!isReady) {
-        // Client exists but not ready → attempt auto reconnect without QR
-        this.logger.log(`⏳ Client exists but not ready, attempting auto reconnect - Business ${businessId}`);
-
-        existingClient.initialize().catch(err => {
-          this.logger.warn(`⚠️ Auto reconnect failed for Business ${businessId}: ${err}`);
-        });
-
-
-        return {
-          status: 'success',
-          message: 'Client exists but not ready, attempting auto reconnect',
-          connected: !!existingClient.info?.wid,
-          client: existingClient,
-        };
-      } else {
-        // Client ready → return it
-        return {
-          status: 'success',
-          message: 'Client already exists',
-          connected: true,
-          client: existingClient
-        };
+      if (existingClient.info?.me) {
+        return { status: 'success', message: 'Client already connected', connected: true, client: existingClient };
       }
+      try {
+        await existingClient.initialize(); 
+      } catch (err) {
+        this.logger.warn(`Auto reconnect failed: ${err}`);
+      }
+      return { status: 'success', message: 'Client reconnecting', connected: !!existingClient.info?.me, client: existingClient };
     }
 
-    // Client doesn't exist yet → create new
-    const sessionPath = this.getSessionPath(businessId);
     let isConnected = false;
     let currentQR: string | undefined;
+    const sessionPath = this.getSessionPath(businessId);
 
     const client = new Client({
       authStrategy: new LocalAuth({ clientId: `business_${businessId}`, dataPath: sessionPath }),
-      puppeteer: {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-extensions',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-infobars',
-          '--disable-features=site-per-process',
-          '--disable-features=NetworkService',
-          '--ignore-certificate-errors',
-          '--ignore-certificate-errors-spki-list',
-          '--mute-audio',
-          '--disable-notifications',
-        ],
-        ignoreHTTPSErrors: true,
-      },
+      puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], ignoreHTTPSErrors: true },
       takeoverOnConflict: true,
       restartOnAuthFail: true,
     });
 
     client.on('qr', (qr) => {
       currentQR = qr;
-      this.logger.log(`📱 QR scan required for Business ${businessId}`);
+      this.logger.log(`📱 QR scan required - Business ${businessId}`);
       this.gateway?.sendQR(businessId, qr);
     });
 
-    client.on('authenticated', async () => {
+    client.on('authenticated', () => {
       this.logger.log(`🔐 Authenticated - Business ${businessId}`);
       this.gateway?.sendAuthenticated(businessId);
-
-      // Patch Puppeteer to prevent Target closed
-      try {
-        const page = client.pupPage ?? (client as any)._page;
-        if (!page) return;
-        const cdp = await page.target().createCDPSession();
-        cdp.on('Network.loadingFinished', (e: { requestId: any; }) => {
-          if (e.requestId) delete e.requestId;
-        });
-        await cdp.send('Network.enable');
-      } catch (err) {
-        this.logger.warn(`CDP patch failed: ${err}`);
-      }
     });
 
     client.on('ready', async () => {
       isConnected = true;
-      this.logger.log(`✅ WhatsApp READY - Business  ${businessId}`);
-      await this.saveSessionStatus(businessId, 'connected');
+      this.logger.log(`✅ WhatsApp READY - Business ${businessId}`);
+      try {
+        await this.saveSessionStatus(businessId, 'connected');
+      } catch (err) {
+        this.logger.warn(`Failed to save session status: ${err}`);
+      }
       this.gateway?.sendReady(businessId);
     });
 
     client.on('disconnected', async (reason) => {
-      this.logger.warn(`⚠️ WhatsApp client disconnected for Business ${businessId}: ${reason}`);
-      await this.saveSessionStatus(businessId, 'disconnected');
-      this.gateway?.sendDisconnected(businessId);
-
-      this.handleClientReinitialization(client, businessId);
+      this.logger.warn(`⚠️ Client disconnected for Business ${businessId}: ${reason}`);
+      await this.saveSessionStatus(businessId, 'disconnected').catch(() => { });
+      this.clients.delete(businessId);
+      setTimeout(() => this.createClient(businessId), 3000);
     });
 
-    // Initialize client safely with retry
+    // Retry initialization for EBUSY & Puppeteer races
     for (let i = 0; i < 3; i++) {
       try {
         await client.initialize();
+        // small delay to let Puppeteer page settle
+        await new Promise(res => setTimeout(res, 2000));
         break;
       } catch (err: any) {
-        if (err.code === 'EBUSY' && i < 2) {
-          this.logger.warn(`EBUSY initializing client, retry ${i + 1}`);
-          await new Promise(res => setTimeout(res, 500));
+        if ((err.code === 'EBUSY' || err.message?.includes('JavaScript world')) && i < 2) {
+          this.logger.warn(`Retrying initialize due to Puppeteer race/EBUSY ${i + 1}`);
+          await new Promise(res => setTimeout(res, 1500));
         } else {
-          return {
-            status: 'error',
-            message: `Failed to initialize client: ${err.message || err}`,
-            connected: false,
-            client,
-          };
+          return { status: 'error', message: `Failed to initialize client: ${err.message || err}`, connected: false, client };
         }
       }
     }
 
-    // Save client instance
     this.clients.set(businessId, client);
 
-    return {
-      status: 'success',
-      message: 'Client initialized',
-      connected: isConnected,
-      qr: currentQR,
-      client,
-    };
-  }
-
-
-  // Function to handle client reinitialization
-
-  async handleClientReinitialization(client: Client, businessId: number) {
-    // 1. Immediately remove the failing client from the map
-    this.clients.delete(businessId);
-
-    // 2. Gracefully attempt to destroy the client one last time (best effort)
-    try {
-      await client.destroy();
-      this.logger.log(`Old client destroyed after disconnection: ${businessId}`);
-    } catch (err) {
-      this.logger.error(`Error destroying old client ${businessId}: ${err}`);
-      // This is often where the EBUSY happens, but we continue anyway.
-    }
-
-    // 3. Create a NEW client (which is handled by your createClient logic)
-    this.logger.log(`Attempting to reinitialize new client for ${businessId}...`);
-    await this.createClient(businessId);
-  };
-
-  // Function to reset the client
-  // Function to reset the client
-  async resetClient(client: Client) {
-    try {
-      // 1. Destroy the current instance (triggers LocalAuth.logout and file cleanup)
-      await client.destroy();
-      console.log('Whatsapp Client destroyed. Reinitializing...');
-
-      // 2. 💡 ADD A SHORT DELAY HERE to ensure file locks are released
-      await new Promise(res => setTimeout(res, 15000)); // Delay for 500ms 
-
-      // 3. Reinitialize the client
-      await client.initialize();
-    } catch (error) {
-      // ... (Error logging)
-    }
+    return { status: 'success', message: 'Client initialized', connected: isConnected, qr: currentQR, client };
   }
 
   async stopClient(businessId: number) {
@@ -244,28 +153,15 @@ export class WhatsAppClientManager {
 
   }
 
-  isConnected(businessId: number): boolean {
-    const client = this.clients.get(businessId);
-    return !!(client && client.info?.me);
-  }
 
   async saveSessionStatus(businessId: number, status: string) {
-    let session = await this.whatsappRepo.findOne({
-      where: { business: { id: businessId } },
-      relations: ['business'],
-    });
-
+    let session = await this.whatsappRepo.findOne({ where: { business: { id: businessId } }, relations: ['business'] });
     if (!session) {
       const business = await this.businessRepo.findOneBy({ id: businessId });
-      if (!business) throw new Error(`Business with ID ${businessId} not found`);
-
+      if (!business) throw new Error(`Business ${businessId} not found`);
       session = this.whatsappRepo.create({ business, session_data: status });
-    } else {
-      session.session_data = status;
-    }
-
+    } else session.session_data = status;
     await this.whatsappRepo.save(session);
-
   }
 }
 
