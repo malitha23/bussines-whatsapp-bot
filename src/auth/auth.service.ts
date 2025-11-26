@@ -175,7 +175,7 @@ export class AuthService {
 
     const access_token = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_SECRET,
-      expiresIn: '1h',
+      expiresIn: '3min',
     });
 
     const refresh_token = await this.jwtService.signAsync(payload, {
@@ -187,30 +187,24 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-    try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(
-        refreshToken,
-        { secret: process.env.JWT_REFRESH_SECRET },
-      );
+  try {
+    const payload = await this.jwtService.verifyAsync(refreshToken, {
+      secret: process.env.JWT_REFRESH_SECRET,
+    });
 
-      // Find the user
-      const user = await this.usersService.findOne(payload.sub);
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
+    const user = await this.usersService.findOne(payload.sub);
+    if (!user) throw new UnauthorizedException("User not found");
 
-      // Generate new access token
-      const newAccessToken = await this.jwtService.signAsync(
-        { sub: user.id, email: user.email, role: user.role_type },
-        { secret: process.env.JWT_SECRET, expiresIn: '1h' },
-      );
+    const newAccessToken = await this.jwtService.signAsync(
+      { sub: user.id, email: user.email, role: user.role_type },
+      { secret: process.env.JWT_SECRET, expiresIn: "15m" }
+    );
 
-      return {
-        access_token: newAccessToken,
-      };
-    } catch (error) {
-      console.error('Error refreshing token:', error);
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
+    return { access_token: newAccessToken };
+
+  } catch (e) {
+    throw new UnauthorizedException("Invalid or expired refresh token");
   }
+}
+
 }

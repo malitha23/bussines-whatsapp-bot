@@ -89,7 +89,7 @@ async login(@Body() loginDto: LoginDto) {
   // Protected profile route
   // ---------------------------
   @UseGuards(JwtAuthGuard)
-  @Post('profile')
+  @Post('me')
   getProfile(@Req() req: Request & { user: JwtPayload }) {
     return {
       status: 'success',
@@ -98,12 +98,8 @@ async login(@Body() loginDto: LoginDto) {
   }
 
   @Post('refresh')
-  async refresh(@Body() body: RefreshTokenDto) {
-    const tokens = await this.authService.refresh(body.refresh_token);
-    return {
-      status: 'success',
-      message: 'Token refreshed successfully',
-      data: tokens,
-    };
-  }
+async refresh(@Body('refreshToken') refreshToken: string) {
+  return await this.authService.refresh(refreshToken);
+}
+
 }
