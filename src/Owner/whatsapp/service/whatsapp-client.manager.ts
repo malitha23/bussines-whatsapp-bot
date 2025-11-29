@@ -30,8 +30,12 @@ export class WhatsAppClientManager {
 
   isConnected(businessId: number): boolean {
     const client = this.clients.get(businessId);
-    return !!(client && client.info?.me);
+    if (!client) return false;
+
+    const wid = !!client.info?.wid;                       // user logged in
+    return wid;
   }
+
 
   getClient(businessId: number): Client | null {
     return this.clients.get(businessId) || null;
@@ -46,16 +50,35 @@ export class WhatsAppClientManager {
   }> {
     if (this.clients.has(businessId)) {
       const existingClient = this.clients.get(businessId)!;
-      if (existingClient.info?.me) {
-        return { status: 'success', message: 'Client already connected', connected: true, client: existingClient };
+
+      const wid = existingClient.info?.wid;
+      const wsConnected = (existingClient as any).ws?.connected === true;
+
+      // 🔥 Already connected
+      if (wid && wsConnected) {
+        return {
+          status: 'success',
+          message: 'Client already connected',
+          connected: true,
+          client: existingClient,
+        };
       }
+
+      // 🔥 Not connected → Reconnect (NO await)
       try {
-        await existingClient.initialize(); 
+        existingClient.initialize();  // IMPORTANT: non-blocking
       } catch (err) {
         this.logger.warn(`Auto reconnect failed: ${err}`);
       }
-      return { status: 'success', message: 'Client reconnecting', connected: !!existingClient.info?.me, client: existingClient };
+
+      return {
+        status: 'success',
+        message: 'Client reconnecting',
+        connected: false,
+        client: existingClient,
+      };
     }
+
 
     let isConnected = false;
     let currentQR: string | undefined;
@@ -97,7 +120,7 @@ export class WhatsAppClientManager {
       setTimeout(() => this.createClient(businessId), 3000);
     });
 
-    // Retry initialization for EBUSY & Puppeteer races
+    // Retry initialization for EBUSY & Puppeteer races  
     for (let i = 0; i < 3; i++) {
       try {
         await client.initialize();
