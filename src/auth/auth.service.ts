@@ -16,16 +16,24 @@ import { LoginDto } from './dto/login.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WhatsAppSession } from '../database/entities/whatsapp-session.entity';
+import { BotMessageGateway } from '../gateway/bot-message.gateway';
+import * as botJson from '../data/bot_messages.json';
+import { BotMessage } from '../database/entities/bot-messages.entity';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private botMessageGateway: BotMessageGateway,
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
     @InjectRepository(WhatsAppSession)
     private readonly whatsappSessionRepository: Repository<WhatsAppSession>,
+    @InjectRepository(BotMessage)
+    private readonly botMessageRepository: Repository<BotMessage>,
   ) { }
 
   // ---------------------------
@@ -68,11 +76,11 @@ export class AuthService {
         name: registerDto.businessName,
         email: registerDto.businessEmail,
         phone: registerDto.phone || '',
-        address: registerDto.address, 
+        address: registerDto.address,
         owner: user,
       });
     }
- 
+
     // Generate tokens (same as login)
     const tokens = await this.login(user);
 
@@ -101,8 +109,44 @@ export class AuthService {
       whatsappConnected,
     };
 
+    if (business) {
+      this.importBotMessages(business.id); // no await, runs asynchronously
+    }
+
     return { user: responseUser, tokens, businessId: business?.id?.toString() };
   }
+
+  // Separate async function to import messages and send progress
+  private async importBotMessages(businessId: number) {
+  const filePath = join(__dirname, '../data/bot_messages.json');
+  const fileContent = readFileSync(filePath, 'utf-8');
+  const jsonMessages = JSON.parse(fileContent) as any[];
+
+  if (!Array.isArray(jsonMessages) || jsonMessages.length === 0) {
+    console.warn('No bot messages found in bot_messages.json');
+    return;
+  }
+
+  const total = jsonMessages.length;
+  let inserted = 0;
+
+  for (const item of jsonMessages) {
+    const newRecord = this.botMessageRepository.create({
+      business_id: businessId,
+      language: item.language,
+      key_name: item.key_name,
+      text: item.text,
+    });
+  
+    await this.botMessageRepository.save(newRecord);
+
+    inserted++;
+    const percent = Math.round((inserted / total) * 100);
+    this.botMessageGateway.sendProgress(businessId, percent);
+  }
+
+  this.botMessageGateway.sendComplete(businessId);
+}
 
 
   async loginUser(loginDto: LoginDto) {
@@ -187,24 +231,24 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-  try {
-    const payload = await this.jwtService.verifyAsync(refreshToken, {
-      secret: process.env.JWT_REFRESH_SECRET,
-    });
+    try {
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
 
-    const user = await this.usersService.findOne(payload.sub);
-    if (!user) throw new UnauthorizedException("User not found");
+      const user = await this.usersService.findOne(payload.sub);
+      if (!user) throw new UnauthorizedException("User not found");
 
-    const newAccessToken = await this.jwtService.signAsync(
-      { sub: user.id, email: user.email, role: user.role_type },
-      { secret: process.env.JWT_SECRET, expiresIn: "15m" }
-    );
+      const newAccessToken = await this.jwtService.signAsync(
+        { sub: user.id, email: user.email, role: user.role_type },
+        { secret: process.env.JWT_SECRET, expiresIn: "15m" }
+      );
 
-    return { access_token: newAccessToken };
+      return { access_token: newAccessToken };
 
-  } catch (e) {
-    throw new UnauthorizedException("Invalid or expired refresh token");
+    } catch (e) {
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
   }
-}
 
 }

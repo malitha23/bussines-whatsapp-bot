@@ -90,7 +90,7 @@ export class WhatsAppService {
     // Otherwise, create or reconnect
     const clientResult = await this.clientManager.createClient(businessId);
 
-    // Bind message listener only once
+    // Bind message listener only once 
     const client = clientResult.client;
     client.removeAllListeners('message');
     client.on('message', (msg) => {

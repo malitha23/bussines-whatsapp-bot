@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Client, LocalAuth } from 'whatsapp-web.js';
-import * as path from 'path';
-import * as fs from 'fs';
+import fs from 'fs';
+import path from 'path';
 import { WhatsAppGateway } from '../whatsapp.gateway';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WhatsAppSession } from '../../../database/entities/whatsapp-session.entity';
@@ -84,17 +84,50 @@ export class WhatsAppClientManager {
     let currentQR: string | undefined;
     const sessionPath = this.getSessionPath(businessId);
 
+    // const client = new Client({
+    //   authStrategy: new LocalAuth({ clientId: `business_${businessId}`, dataPath: sessionPath }),
+    //   puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], ignoreHTTPSErrors: true },
+    //   takeoverOnConflict: true,
+    //   restartOnAuthFail: true,
+    // });
+
     const client = new Client({
       authStrategy: new LocalAuth({ clientId: `business_${businessId}`, dataPath: sessionPath }),
-      puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], ignoreHTTPSErrors: true },
+      puppeteer: { userDataDir: undefined, headless: true,  executablePath: '/usr/bin/chromium-browser',
+                   args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-features=IsolateOrigins,site-per-process', // critical fix
+      '--disable-site-isolation-trials',
+      '--single-process',
+      '--no-zygote'
+    ],
+                   ignoreHTTPSErrors: true },
       takeoverOnConflict: true,
       restartOnAuthFail: true,
     });
 
     client.on('qr', (qr) => {
+      const existingClient = this.clients.get(businessId)!;
+
+      const wid = existingClient.info?.wid;
+      const wsConnected = (existingClient as any).ws?.connected === true;
+
+      if (wid && wsConnected) return; // Already connected
+
       currentQR = qr;
-      this.logger.log(`📱 QR scan required - Business ${businessId}`);
-      this.gateway?.sendQR(businessId, qr);
+
+      if (this.gateway?.hasConnectedClients(businessId)) {
+        // Only log/send if at least one frontend is connected
+        this.logger.log(`📤 WS → Sending QR to Business ${businessId}`);
+        this.gateway.sendQR(businessId, qr);
+      } else {
+        client.destroy();
+        return;
+      }
     });
 
     client.on('authenticated', () => {
@@ -115,14 +148,20 @@ export class WhatsAppClientManager {
 
     client.on('disconnected', async (reason) => {
       this.logger.warn(`⚠️ Client disconnected for Business ${businessId}: ${reason}`);
+      if (this.gateway) {
+        this.gateway.sendDisconnected(businessId);
+      }
       await this.saveSessionStatus(businessId, 'disconnected').catch(() => { });
       this.clients.delete(businessId);
-      setTimeout(() => this.createClient(businessId), 3000);
+      //      setTimeout(() => this.createClient(businessId), 3000);
     });
 
     // Retry initialization for EBUSY & Puppeteer races  
     for (let i = 0; i < 3; i++) {
       try {
+        const lockFile = `/home/botBackend/bussines-whatsapp-bot/whatsapp-sessions/business_${businessId}/session-business_${businessId}/SingletonLock`;
+        if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+
         await client.initialize();
         // small delay to let Puppeteer page settle
         await new Promise(res => setTimeout(res, 2000));
@@ -132,6 +171,8 @@ export class WhatsAppClientManager {
           this.logger.warn(`Retrying initialize due to Puppeteer race/EBUSY ${i + 1}`);
           await new Promise(res => setTimeout(res, 1500));
         } else {
+          await this.saveSessionStatus(businessId, 'disconnected').catch(() => { });
+          this.clients.delete(businessId);
           return { status: 'error', message: `Failed to initialize client: ${err.message || err}`, connected: false, client };
         }
       }
@@ -261,9 +302,9 @@ export class WhatsAppClientManager {
 //       this.logger.warn(`⚠️ Disconnected - Business ${businessId}`);
 //       this.clients.delete(businessId);
 
-//       if (this.gateway) {
-//         this.gateway.sendDisconnected(businessId);
-//       }
+// if (this.gateway) {
+//   this.gateway.sendDisconnected(businessId);
+// }
 //     });
 
 //     /** START CLIENT */

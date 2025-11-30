@@ -9,6 +9,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Business } from '../database/entities/business.entity';
 import { WhatsAppSession } from '../database/entities/whatsapp-session.entity';
+import { BotMessage } from '../database/entities/bot-messages.entity';
+import { BotMessageGateway } from '../gateway/bot-message.gateway';
 
 @Module({
   imports: [
@@ -22,9 +24,9 @@ import { WhatsAppSession } from '../database/entities/whatsapp-session.entity';
         signOptions: { expiresIn: '1h' },
       }),
     }),
-    TypeOrmModule.forFeature([Business, WhatsAppSession]), 
+    TypeOrmModule.forFeature([Business, WhatsAppSession, BotMessage]), 
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, BotMessageGateway],
 })
 export class AuthModule {}

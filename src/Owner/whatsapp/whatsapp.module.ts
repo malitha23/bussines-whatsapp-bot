@@ -26,7 +26,7 @@ import { WhatsAppGateway } from './whatsapp.gateway';
     TypeOrmModule.forFeature([WhatsAppSession, Business, UserState, BotMessage, Product, Customer, ProductVariant, Order, OrderItem, OrderCancellation, BusinessPaymentOption, BusinessDeliveryFee]),
     OwnerModule,
   ],
-  providers: [WhatsAppService, WhatsAppClientManager, WhatsAppMessageHandler,MessagesService, WhatsAppGateway],
+  providers: [WhatsAppService, WhatsAppClientManager, WhatsAppMessageHandler,MessagesService, WhatsAppGateway, WhatsAppClientManager],
   controllers: [WhatsAppController],
   exports: [WhatsAppClientManager],
 })

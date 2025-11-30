@@ -22,7 +22,7 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private businessClients = new Map<number, Set<ExtWebSocket>>();
 
-  constructor() {}
+  constructor() { }
 
   handleConnection(client: ExtWebSocket, req: any) {
     const url = new URL(req.url, 'http://localhost');
@@ -79,4 +79,10 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
   sendDisconnected(businessId: number) {
     this.sendToBusiness(businessId, { type: 'disconnected' });
   }
+
+  hasConnectedClients(businessId: number): boolean {
+    const clients = this.businessClients.get(businessId);
+    return !!clients && clients.size > 0;
+  }
+
 } 
