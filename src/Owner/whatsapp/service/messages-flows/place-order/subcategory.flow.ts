@@ -8,15 +8,46 @@ export async function selectSubCategory(
   client: Client,
   phone: string,
   business: Business,
-  categoryIndex: number,
+  categoryInput: any, 
   language: string,
   botMessageRepo: Repository<BotMessage>,
 ) {
   const categories = business.categories || [];
-  const category = categories[categoryIndex - 1];
-
+  
+  console.log(`DEBUG selectSubCategory: categoryInput=`, categoryInput, `type=`, typeof categoryInput);
+  console.log(`DEBUG: Available categories:`, categories.map(c => ({id: c.id, name: c.name})));
+  
+  let category;
+  
+  // Handle different input types
+  if (typeof categoryInput === 'number') {
+    // If it's a number, it could be an index (1-based) or an ID
+    // First check if it's an ID
+    category = categories.find(c => c.id === categoryInput);
+    
+    // If not found by ID, check if it's an index
+    if (!category && categoryInput >= 1 && categoryInput <= categories.length) {
+      category = categories[categoryInput - 1];
+    }
+  } else if (categoryInput && typeof categoryInput === 'object') {
+    // If it's a category object
+    category = categoryInput;
+  } else if (categoryInput && typeof categoryInput === 'string') {
+    // If it's a string, try to parse as number
+    const num = parseInt(categoryInput);
+    if (!isNaN(num)) {
+      category = categories.find(c => c.id === num);
+      if (!category && num >= 1 && num <= categories.length) {
+        category = categories[num - 1];
+      }
+    }
+  }
+  
   // ❌ Invalid category
   if (!category) {
+    console.log(`DEBUG: Category not found. Input was:`, categoryInput);
+    console.log(`DEBUG: Available category IDs:`, categories.map(c => c.id));
+    
     const errMsg = await botMessageRepo.findOne({
       where: {
         business_id: business.id,
@@ -25,9 +56,14 @@ export async function selectSubCategory(
       },
     });
 
-    await client.sendMessage(phone, errMsg?.text || '❌ Invalid subcategory. Try again.');
+    await client.sendMessage(
+      phone, 
+      errMsg?.text || '❌ Invalid selection. Please try again or type 0 to go back.'
+    );
     return { nextState: 'category_selection' };
   }
+
+  console.log(`DEBUG: Found category:`, category.name, `ID:`, category.id);
 
   const subcategories = category.subcategories || [];
 
@@ -88,7 +124,7 @@ export async function selectSubCategory(
   // ✔️ Correct message building
   let msg = (selectMsg?.text || '📂 Please select a subcategory:') + '\n\n';
 
-  subcategories.forEach((sub, idx) => {
+  subcategories.forEach((sub: { name: any; }, idx: number) => {
     msg += `${idx + 1}️⃣ ${sub.name}\n`;
   });
 

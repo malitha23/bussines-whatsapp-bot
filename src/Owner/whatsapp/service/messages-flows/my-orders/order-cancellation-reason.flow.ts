@@ -1,6 +1,6 @@
 import { Client } from 'whatsapp-web.js';
 import { Repository } from 'typeorm';
-import { Order } from '../../../../../database/entities/order.entity';
+import { Order, OrderStatus } from '../../../../../database/entities/order.entity';
 import { OrderCancellation } from '../../../../../database/entities/order-cancellation.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
@@ -17,7 +17,8 @@ export async function enterCancellationReason(
   orderRepo: Repository<Order>,
   orderCancellationRepo: Repository<OrderCancellation>,
   botMessageRepo: Repository<BotMessage>,
-  language: string
+  language: string,
+  quickStatsGateway: any
 ) {
   // Fetch user state
   const userState = await userStateRepo.findOne({ where: { phone, business_id: businessId } });
@@ -49,6 +50,10 @@ export async function enterCancellationReason(
     status: 'pending',
   });
   await orderCancellationRepo.save(cancellation);
+  order.status = 'return_requested' as OrderStatus;
+  await orderRepo.save(order);
+  
+  await quickStatsGateway.broadcastStats(businessId);
 
   // Friendly confirmation message
   let successMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_reason_success');

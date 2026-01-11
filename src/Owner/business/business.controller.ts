@@ -14,16 +14,17 @@ import { BusinessService } from './business.service';
 import { CreateBusinessDto } from '../dto/business/create-business.dto';
 import { UpdateBusinessDto } from '../dto/business/update-business.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { OwnerRoleGuard } from '../guards/owner-role.guard';
+import { RoleGuard, Roles } from '../../guards/role.guard';
 import { Request } from 'express';
 import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 
 @Controller('owner/business')
-@UseGuards(JwtAuthGuard, OwnerRoleGuard)
+@UseGuards(JwtAuthGuard, RoleGuard)
 export class BusinessController {
   constructor(private readonly businessService: BusinessService) {}
 
   @Post()
+  @Roles('owner')
   create(
     @Body() dto: CreateBusinessDto,
     @Req() req: Request & { user: JwtPayload },
@@ -33,11 +34,13 @@ export class BusinessController {
   }
 
   @Get()
+  @Roles('owner')
   findAll(@Req() req: Request & { user: JwtPayload }) {
     return this.businessService.findAll(req.user.sub);
   }
 
   @Get(':id')
+  @Roles('owner')
   findOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: Request & { user: JwtPayload },
@@ -46,6 +49,7 @@ export class BusinessController {
   }
 
   @Patch(':id')
+  @Roles('owner')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBusinessDto,
@@ -55,6 +59,7 @@ export class BusinessController {
   }
 
   @Delete(':id')
+  @Roles('owner')
   remove(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: Request & { user: JwtPayload },

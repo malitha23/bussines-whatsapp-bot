@@ -12,6 +12,10 @@ import { Subscription } from './subscription.entity';
 import { Order } from './order.entity';
 import { BusinessPaymentOption } from './business-payment-options.entity';
 import { BusinessDeliveryFee } from './business-delivery-fee.entity';
+import { RolePermission } from './role-permission.entity';
+import { Manager } from './managers.entity';
+import { Staff } from './staff.entity';
+import { WhatsAppSession } from './whatsapp-session.entity';
 
 @Entity('businesses')
 export class Business {
@@ -51,8 +55,20 @@ export class Business {
   @OneToMany(() => BusinessPaymentOption, (option) => option.business)
   paymentOptions!: BusinessPaymentOption[];
 
+  @OneToMany(() => RolePermission, (rp) => rp.role)
+  rolePermissions?: RolePermission[];
+
   @OneToMany(() => BusinessDeliveryFee, (fee) => fee.business)
   deliveryFees!: BusinessDeliveryFee[];
+
+  @OneToMany(() => Manager, (manager) => manager.business)
+  managers!: Manager[];
+
+  @OneToMany(() => Staff, (staff) => staff.business)
+  staff!: Staff[];
+
+  @OneToMany(() => WhatsAppSession, (ws) => ws.business)
+  whatsappSessions!: WhatsAppSession[];
 
 
 }

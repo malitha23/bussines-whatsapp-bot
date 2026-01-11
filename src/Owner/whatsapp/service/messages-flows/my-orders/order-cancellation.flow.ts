@@ -4,6 +4,7 @@ import { Order } from '../../../../../database/entities/order.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
 import { OrderCancellation } from '../../../../../database/entities/order-cancellation.entity';
+import { CANCELLABLE_DELIVERY_STATUSES, CANCELLABLE_ORDER_STATUSES } from './list-orders.flow';
 
 
 export async function startCancellationFlow(
@@ -21,20 +22,20 @@ export async function startCancellationFlow(
   const orderId = parseInt(text);
 
   const existingCancellation = await orderCancellationRepo.findOne({
-      where: { order: { id: orderId } },
-      order: { id: 'DESC' },
-    });
+    where: { order: { id: orderId } },
+    order: { id: 'DESC' },
+  });
 
-const order = await orderRepo.findOne({
-  where: {
-    id: orderId,
-    customer: { phone },
-    business: { id: businessId },
-    status: In(['paid', 'confirmed']),   
-    delivery_status: 'pending',         
-  },
-  relations: ['customer'],  // include relations if needed
-});
+  const order = await orderRepo.findOne({
+    where: {
+      id: orderId,
+      customer: { phone },
+      business: { id: businessId },
+      status: In(CANCELLABLE_ORDER_STATUSES),
+      delivery_status: In(CANCELLABLE_DELIVERY_STATUSES),
+    },
+    relations: ['customer'],
+  });
 
   if (!order || existingCancellation) {
     const invalidMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_invalid_order');

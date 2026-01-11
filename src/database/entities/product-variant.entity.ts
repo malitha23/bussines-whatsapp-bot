@@ -33,4 +33,8 @@ export class ProductVariant {
 
   @Column({ type: 'varchar', length: 20, default: 'pcs' })
   unit!: string;
+
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  created_at!: Date;
+
 }

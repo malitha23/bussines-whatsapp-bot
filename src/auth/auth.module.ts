@@ -11,6 +11,12 @@ import { Business } from '../database/entities/business.entity';
 import { WhatsAppSession } from '../database/entities/whatsapp-session.entity';
 import { BotMessage } from '../database/entities/bot-messages.entity';
 import { BotMessageGateway } from '../gateway/bot-message.gateway';
+import { Permission } from '../database/entities/permission.entity';
+import { RolePermission } from '../database/entities/role-permission.entity';
+import { Role } from '../database/entities/role.entity';
+import { Manager } from '../database/entities/managers.entity';
+import { Staff } from '../database/entities/staff.entity';
+import { BusinessPaymentOption } from '../database/entities/business-payment-options.entity';
 
 @Module({
   imports: [
@@ -24,7 +30,7 @@ import { BotMessageGateway } from '../gateway/bot-message.gateway';
         signOptions: { expiresIn: '1h' },
       }),
     }),
-    TypeOrmModule.forFeature([Business, WhatsAppSession, BotMessage]), 
+    TypeOrmModule.forFeature([Business, WhatsAppSession, BotMessage, Role, Permission, RolePermission, Manager, Staff, BusinessPaymentOption]), 
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, BotMessageGateway],

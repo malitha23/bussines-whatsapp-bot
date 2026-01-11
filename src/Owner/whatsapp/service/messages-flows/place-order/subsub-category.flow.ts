@@ -18,12 +18,15 @@ export async function selectSubSubCategory(
   language: string,
   botMessageRepo: Repository<BotMessage>
 ) {
+  console.log(`DEBUG selectSubSubCategory: business.id=${business?.id}, subCategoryId=${subCategoryId}`);
+  console.log(`DEBUG: business.categories=`, business?.categories);
+
   if (!business?.categories) {
+    console.log(`ERROR: business.categories is undefined or empty!`);
     const txt = await getBotMessage(botMessageRepo, business.id, language, 'subsub_invalid');
     await client.sendMessage(phone, txt);
     return { nextState: "category_selection" };
   }
-
   const subcategory = business.categories
     .flatMap(c => c.subcategories ?? [])
     .find(sc => sc.id === subCategoryId);

@@ -90,10 +90,13 @@ async login(@Body() loginDto: LoginDto) {
   // ---------------------------
   @UseGuards(JwtAuthGuard)
   @Post('me')
-  getProfile(@Req() req: Request & { user: JwtPayload }) {
+  async getProfile(@Req() req: Request & { user: JwtPayload }) {
+    // Call your AuthService method to get full user details
+    const responseUser = await this.authService.getUserWithPermissions(req.user);
+    
     return {
       status: 'success',
-      data: req.user,
+      data: responseUser,
     };
   }
 

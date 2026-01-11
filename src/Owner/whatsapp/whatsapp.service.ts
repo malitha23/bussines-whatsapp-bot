@@ -32,19 +32,19 @@ export class WhatsAppService {
     }
 
     for (const session of sessions) {
-      const businessId = session.business.id;
+      const businessId = session.business?.id;
       try {
         this.logger.log(
           `📲 Auto-connecting WhatsApp client for Business ID: ${businessId}...`,
         );
         // Fast return if already connected
-        console.log('Checking: ' + this.clientManager.isConnected(businessId));
-        if (this.clientManager.isConnected(businessId)) {
+        console.log('Checking: ' + this.clientManager.isConnected(businessId!));
+        if (this.clientManager.isConnected(businessId!)) {
           return { status: 'success', message: 'Client already connected', connected: true, qr: null };
         }
 
         // Otherwise, create or reconnect
-        const clientResult = await this.clientManager.createClient(businessId);
+        const clientResult = await this.clientManager.createClient(businessId!);
 
         // Bind message listener only once
         const client = clientResult.client;
@@ -54,7 +54,7 @@ export class WhatsAppService {
         client.on('message', async (msg) => {
           const name = msg.getContact.name;
           const text = msg.body?.trim();
-          await this.messageHandler.handleIncomingMessage(client, businessId, msg.from, name, text, msg);
+          await this.messageHandler.handleIncomingMessage(client, businessId!, msg.from, name, text, msg);
         });
 
         this.logger.log(
@@ -70,7 +70,7 @@ export class WhatsAppService {
             `❌ Failed to reconnect Business ID ${businessId}: ${String(err)}`,
           );
         }
-        this.clientManager.saveSessionStatus(businessId, 'disconnected');
+        this.clientManager.saveSessionStatus(businessId!, 'disconnected');
       }
     }
   }
@@ -90,7 +90,7 @@ export class WhatsAppService {
     // Otherwise, create or reconnect
     const clientResult = await this.clientManager.createClient(businessId);
 
-    // Bind message listener only once 
+    // Bind message listener only once  
     const client = clientResult.client;
     client.removeAllListeners('message');
     client.on('message', (msg) => {

@@ -13,16 +13,20 @@ import { Order } from '../database/entities/order.entity';
 
 // 🧠 Services
 import { BusinessService } from './business/business.service';
-import { InventoryService } from './inventory/inventory.service';
+import { InventoryService } from '../inventory/inventory.service';
 
 // 🎮 Controllers
 import { BusinessController } from './business/business.controller';
-import { InventoryController } from './inventory/inventory.controller';
+import { InventoryController } from '../inventory/inventory.controller';
 
 // 🔐 Dependencies
 import { UsersModule } from '../users/users.module';
 import { ProductSubSubCategory } from '../database/entities/product-subsub-category.entity';
 import { VariantImage } from '../database/entities/variant-image.entity';
+import { Manager } from '../database/entities/managers.entity';
+import { Staff } from '../database/entities/staff.entity';
+import { User } from '../database/entities/user.entity';
+import { ProductSubCategory } from '../database/entities/product-subcategory.entity';
 
 @Module({
   imports: [
@@ -38,20 +42,24 @@ import { VariantImage } from '../database/entities/variant-image.entity';
       Order,
       Business,
       ProductSubSubCategory,
+      User,
+            Manager,
+            Staff,
+            ProductSubCategory
     ]),
     UsersModule,
   ],
   providers: [
     BusinessService,
-    InventoryService, // ✅ Inventory service added
+    InventoryService, 
   ],
   controllers: [
     BusinessController,
-    InventoryController, // ✅ Inventory controller added
+    InventoryController, 
   ],
   exports: [
     BusinessService,
-    InventoryService, // ✅ Export if other modules may need it
+    InventoryService, 
   ],
 })
 export class OwnerModule {}

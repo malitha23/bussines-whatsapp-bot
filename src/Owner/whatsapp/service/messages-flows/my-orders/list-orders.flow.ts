@@ -1,9 +1,13 @@
 import { Client } from 'whatsapp-web.js';
 import { Repository } from 'typeorm';
-import { Order, OrderStatus } from '../../../../../database/entities/order.entity';
+import { DeliveryStatus, Order, OrderStatus } from '../../../../../database/entities/order.entity';
 import { OrderCancellation } from '../../../../../database/entities/order-cancellation.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
+
+// Define constants for consistent checking
+export const CANCELLABLE_ORDER_STATUSES: OrderStatus[] = ['pending', 'confirmed', 'paid', 'processing'];
+export const CANCELLABLE_DELIVERY_STATUSES: DeliveryStatus[] = ['pending', 'confirmed', 'processing'];
 
 export async function sendOrdersByStatus(
   client: Client,
@@ -70,7 +74,10 @@ export async function sendOrdersByStatus(
     if (existingCancellation) {
       const cancelMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_status');
       msg += `\n${cancelMsg.replace('{status}', existingCancellation.status.toUpperCase())}\n`;
-    } else if (['paid', 'confirmed'].includes(order.status) && order.delivery_status === 'pending') {
+    } else if (
+      CANCELLABLE_ORDER_STATUSES.includes(order.status) && 
+      CANCELLABLE_DELIVERY_STATUSES.includes(order.delivery_status)
+    ) {
       const cancelReqMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_request_available');
       msg += `\n${cancelReqMsg.replace('{orderId}', order.id.toString())}\n`;
     }

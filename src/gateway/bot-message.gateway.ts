@@ -39,7 +39,7 @@ export class BotMessageGateway
 
   handleDisconnect(client: ExtSocket) {
     const businessId = client.businessId;
-    const clients = this.businessSockets.get(businessId!);
+    const clients = this.businessSockets.get(businessId!); 
 
     if (clients) {
       clients.delete(client);

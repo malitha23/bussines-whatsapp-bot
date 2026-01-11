@@ -29,6 +29,13 @@ import { OrderItem } from './entities/order-item.entity';
 import { OrderCancellation } from './entities/order-cancellation.entity';
 import { BusinessPaymentOption } from './entities/business-payment-options.entity';
 import { BusinessDeliveryFee } from './entities/business-delivery-fee.entity';
+import { RolePermission } from './entities/role-permission.entity';
+import { Role } from './entities/role.entity';
+import { Permission } from './entities/permission.entity';
+import { Manager } from './entities/managers.entity';
+import { Staff } from './entities/staff.entity';
+import { TeamActivity } from './entities/team-activity.entity';
+import { OrderTracking } from './entities/order-tracking.entity';
 
 // === Main Data Source Export ===
 export const AppDataSource = new DataSource({
@@ -61,7 +68,14 @@ export const AppDataSource = new DataSource({
     BotMessage,
     OrderCancellation,
     BusinessPaymentOption,
-    BusinessDeliveryFee
+    BusinessDeliveryFee,
+    RolePermission,
+    Role,
+    Permission,
+    Manager,
+    Staff,
+    TeamActivity,
+    OrderTracking
   ],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false, // Always false in production

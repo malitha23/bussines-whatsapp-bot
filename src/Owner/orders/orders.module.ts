@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
@@ -11,6 +11,7 @@ import { InventoryTransaction } from '../../database/entities/inventory-transact
 import { BotMessage } from '../../database/entities/bot-messages.entity';
 import { UserState } from '../../database/entities/user_states.entity';
 
+@Global()
 @Module({
   imports: [TypeOrmModule.forFeature([Order, OrderItem, ProductVariant, InventoryStock, InventoryTransaction, BotMessage, UserState ]), WhatsAppModule],
   controllers: [OrdersController],

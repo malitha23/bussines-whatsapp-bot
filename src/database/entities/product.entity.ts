@@ -20,7 +20,7 @@ export class Product {
   business!: Business;
 
   @ManyToOne(() => ProductSubCategory, (sub) => sub.products, { nullable: true })
-subCategory!: ProductSubCategory | null;
+  subCategory!: ProductSubCategory | null;
 
 
   @ManyToOne(() => ProductSubSubCategory, (subsub) => subsub.products, {

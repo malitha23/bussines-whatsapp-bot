@@ -7,7 +7,8 @@ import {
 } from 'typeorm';
 import { Business } from './business.entity';
 import { ProductSubCategory } from './product-subcategory.entity';
-import { Product } from 'whatsapp-web.js';
+import { Product } from './product.entity';
+
 
 @Entity('product_categories')
 export class ProductCategory {
@@ -22,5 +23,5 @@ export class ProductCategory {
 
   @OneToMany(() => ProductSubCategory, (sub) => sub.category)
   subcategories!: ProductSubCategory[];
-products!: Product[];
+  products!: Product[]; 
 }

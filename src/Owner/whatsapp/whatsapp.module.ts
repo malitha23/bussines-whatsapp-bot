@@ -21,12 +21,41 @@ import { BusinessPaymentOption } from '../../database/entities/business-payment-
 import { BusinessDeliveryFee } from '../../database/entities/business-delivery-fee.entity';
 import { WhatsAppGateway } from './whatsapp.gateway';
 
+import { DashboardModule } from '../../dashboard/dashboard.module';
+import { QuickStatsGateway } from '../../gateway/quick-stats.gateway';
+import { GptService } from './gpt.service';
+import { GptBytezService } from './gpt-bytez.service';
+
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WhatsAppSession, Business, UserState, BotMessage, Product, Customer, ProductVariant, Order, OrderItem, OrderCancellation, BusinessPaymentOption, BusinessDeliveryFee]),
+    TypeOrmModule.forFeature([
+      WhatsAppSession,
+      Business,
+      UserState,
+      BotMessage,
+      Product,
+      Customer,
+      ProductVariant,
+      Order,
+      OrderItem,
+      OrderCancellation,
+      BusinessPaymentOption,
+      BusinessDeliveryFee
+    ]),
+
     OwnerModule,
+    DashboardModule,  // <-- IMPORTANT
   ],
-  providers: [WhatsAppService, WhatsAppClientManager, WhatsAppMessageHandler,MessagesService, WhatsAppGateway, WhatsAppClientManager],
+  providers: [
+    WhatsAppService,
+    WhatsAppClientManager,
+    WhatsAppMessageHandler,
+    MessagesService,
+    WhatsAppGateway,
+    QuickStatsGateway, // <-- ADD THIS
+    GptService,
+    GptBytezService
+  ],
   controllers: [WhatsAppController],
   exports: [WhatsAppClientManager],
 })

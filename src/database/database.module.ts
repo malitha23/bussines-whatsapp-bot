@@ -24,6 +24,13 @@ import { OrderCancellation } from './entities/order-cancellation.entity';
 import { BusinessPaymentOption } from './entities/business-payment-options.entity';
 import { BusinessDeliveryFee } from './entities/business-delivery-fee.entity';
 import { ConfigModule } from '@nestjs/config';
+import { Permission } from './entities/permission.entity';
+import { RolePermission } from './entities/role-permission.entity';
+import { Role } from './entities/role.entity';
+import { Manager } from './entities/managers.entity';
+import { Staff } from './entities/staff.entity';
+import { TeamActivity } from './entities/team-activity.entity';
+import { OrderTracking } from './entities/order-tracking.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -57,11 +64,18 @@ import { ConfigModule } from '@nestjs/config';
         BotMessage,
         OrderCancellation,
         BusinessPaymentOption,
-        BusinessDeliveryFee
+        BusinessDeliveryFee,
+        RolePermission,
+        Role,
+        Permission,
+        Manager,
+        Staff,
+        TeamActivity,
+        OrderTracking
       ],
       synchronize: false, // false in production
       logging: true,
     }),
   ],
 })
-export class DatabaseModule {}
+export class DatabaseModule { }

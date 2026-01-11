@@ -1,4 +1,4 @@
- import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany } from 'typeorm';
 import { Business } from './business.entity';
 
 @Entity('business_delivery_fee')
@@ -20,4 +20,7 @@ export class BusinessDeliveryFee {
 
   @Column('decimal', { precision: 10, scale: 2 })
   fee!: number;
+
+  @Column({ type: 'boolean', default: true })
+  active!: boolean;
 }

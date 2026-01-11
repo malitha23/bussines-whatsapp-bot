@@ -52,7 +52,8 @@ export async function handlePaymentMethod(
   variantRepo: Repository<ProductVariant>,
   businessPaymentOptionRepo: Repository<BusinessPaymentOption>,
   deliveryFeeRepo: Repository<BusinessDeliveryFee>,
-  botMessageRepo: Repository<BotMessage>
+  botMessageRepo: Repository<BotMessage>,
+  quickStatsGateway: any
 ) {
   const choice = text.trim();
 
@@ -112,7 +113,7 @@ export async function handlePaymentMethod(
     delivery_fee: deliveryFee,
     payment_status: stateData.payment_status,
     delivery_status: "pending",
-    status: stateData.payment_status === "paid" ? "paid" : "pending",
+    status: "pending",
     payment_method: stateData.paymentOption,
   });
   const savedOrder = await orderRepo.save(order);
@@ -154,7 +155,7 @@ export async function handlePaymentMethod(
     stateData.orderId = savedOrder.id;
     await saveState(businessId, phone, "", stateData, "upload_payment_receipt");
   }
-
+  await quickStatsGateway.broadcastStats(businessId);
   await client.sendMessage(phone.includes("@c.us") ? phone : `${phone}@c.us`, message);
 }
 
@@ -168,7 +169,8 @@ export async function handlePaymentReceipt(
   language: string,
   saveState: Function,
   orderRepo: Repository<Order>,
-  botMessageRepo: Repository<BotMessage>
+  botMessageRepo: Repository<BotMessage>,
+  quickStatsGateway: any
 ) {
   if (!message?.hasMedia) {
     await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_receipt_missing"));
@@ -198,7 +200,7 @@ export async function handlePaymentReceipt(
 
   stateData.receiptPath = fileUrl;
   stateData.payment_status = "pending";
-
+  await quickStatsGateway.broadcastStats(businessId);
   await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_receipt_uploaded"));
   await saveState(businessId, phone, "", stateData, "post_payment");
 }

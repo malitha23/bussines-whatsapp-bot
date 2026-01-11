@@ -6,8 +6,13 @@ export class WhatsAppSession {
   @PrimaryGeneratedColumn()
   id!: number; // ✅ definite assignment
 
-  @ManyToOne(() => Business)
-  business!: Business;
+
+  @ManyToOne(() => Business, (business) => business.whatsappSessions, {
+    nullable: true, // allow NULL
+    onDelete: 'SET NULL', // optional: automatically set NULL if business deleted
+  })
+  business?: Business;
+
 
   @Column('text')
   session_data!: string;
