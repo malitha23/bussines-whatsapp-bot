@@ -89,8 +89,8 @@ export class WhatsAppClientManager {
     //   puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], ignoreHTTPSErrors: true },
     //   takeoverOnConflict: true,
     //   restartOnAuthFail: true,
-    // });
-
+    // }); 
+ 
     const client = new Client({
       authStrategy: new LocalAuth({ clientId: `business_${businessId}`, dataPath: sessionPath }),
       puppeteer: { userDataDir: undefined, headless: true,  executablePath: '/usr/bin/chromium-browser',

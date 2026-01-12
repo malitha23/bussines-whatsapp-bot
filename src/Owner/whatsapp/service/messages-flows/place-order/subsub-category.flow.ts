@@ -49,7 +49,7 @@ export async function selectSubSubCategory(
   let msg = `${selectMsg}\n\n`;
 
   if (directProducts.length > 0) {
-    msg += `${directMsg}\n\n`;
+    msg += `${directMsg}\n`;
   }
 
   subsubs.forEach((s, idx) => {

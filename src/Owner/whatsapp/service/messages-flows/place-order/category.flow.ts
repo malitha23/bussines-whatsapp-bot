@@ -46,11 +46,19 @@ export async function showCategories(
     const msgRow = await botMessageRepo.findOne({
       where: { business_id: businessId, language, key_name: 'select_category_only_one_category' },
     });
-    const msg = (msgRow?.text || `📂 Only one category found: *${cat.name}*\nShowing its subcategories...`)
-      .replace('{categoryName}', cat.name);
+
+    const msg = (msgRow?.text || `📂 Only one category found: *{categoryName}*\nShowing its subcategories: *{categoryName}*`)
+      .replace(/{categoryName}/g, cat.name);
+
     await client.sendMessage(phone, msg);
-    return { nextState: 'subcategory_selection', selectedCategory: cat };
+
+    return {
+      nextState: 'subcategory_selection',
+      selectedCategory: cat,
+      autoShowSubcategories: true
+    };
   }
+
 
   // Multiple categories → show numbered list
   const msgRow = await botMessageRepo.findOne({

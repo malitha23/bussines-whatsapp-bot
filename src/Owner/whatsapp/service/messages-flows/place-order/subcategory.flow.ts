@@ -7,24 +7,31 @@ import { Repository } from 'typeorm';
 export async function selectSubCategory(
   client: Client,
   phone: string,
-  business: Business,
-  categoryInput: any, 
+  businessId: number,
+  businessRepo: Repository<Business>,
+  categoryInput: any,
   language: string,
   botMessageRepo: Repository<BotMessage>,
 ) {
-  const categories = business.categories || [];
-  
-  console.log(`DEBUG selectSubCategory: categoryInput=`, categoryInput, `type=`, typeof categoryInput);
-  console.log(`DEBUG: Available categories:`, categories.map(c => ({id: c.id, name: c.name})));
-  
+  const business = await businessRepo.findOne({
+    where: { id: businessId },
+    relations: [
+      'categories',
+      'categories.subcategories',
+      'categories.subcategories.subsubcategories',
+      'categories.subcategories.subsubcategories.products',
+    ],
+  });
+  const categories = business!.categories || [];
+
   let category;
-  
+
   // Handle different input types
   if (typeof categoryInput === 'number') {
     // If it's a number, it could be an index (1-based) or an ID
     // First check if it's an ID
     category = categories.find(c => c.id === categoryInput);
-    
+
     // If not found by ID, check if it's an index
     if (!category && categoryInput >= 1 && categoryInput <= categories.length) {
       category = categories[categoryInput - 1];
@@ -42,28 +49,24 @@ export async function selectSubCategory(
       }
     }
   }
-  
-  // ❌ Invalid category
+
   if (!category) {
-    console.log(`DEBUG: Category not found. Input was:`, categoryInput);
-    console.log(`DEBUG: Available category IDs:`, categories.map(c => c.id));
-    
+
     const errMsg = await botMessageRepo.findOne({
       where: {
-        business_id: business.id,
+        business_id: business!.id,
         language,
         key_name: 'select_subcategory_invalid',
       },
     });
 
     await client.sendMessage(
-      phone, 
+      phone,
       errMsg?.text || '❌ Invalid selection. Please try again or type 0 to go back.'
     );
     return { nextState: 'category_selection' };
   }
 
-  console.log(`DEBUG: Found category:`, category.name, `ID:`, category.id);
 
   const subcategories = category.subcategories || [];
 
@@ -71,43 +74,47 @@ export async function selectSubCategory(
   if (subcategories.length === 0) {
     const noSubMsg = await botMessageRepo.findOne({
       where: {
-        business_id: business.id,
+        business_id: business!.id,
         language,
         key_name: 'select_subcategory_none',
       },
     });
 
-    await client.sendMessage(phone, noSubMsg?.text || '📦 Showing products...');
-    await sendProducts(client, phone, category.products || []);
+    await client.sendMessage(phone, noSubMsg?.text || '');
 
     return { nextState: 'main_menu' };
   }
 
-  // 📂 Only 1 subcategory → auto-select
-  if (subcategories.length === 1) {
-    const oneMsg = await botMessageRepo.findOne({
-      where: {
-        business_id: business.id,
-        language,
-        key_name: 'select_subcategory_only_one',
-      },
-    });
+  // 📂 Only 1 subcategory → show with number for input
+ if (subcategories.length === 1) {
+  // Fetch the message template from DB for the current language
+  const oneMsg = await botMessageRepo.findOne({
+    where: {
+      business_id: business!.id,
+      language,
+      key_name: 'select_subcategory_only_one',
+    },
+  });
 
-    const msg = (oneMsg?.text || '📂 Only one subcategory: *{subName}*')
-      .replace('{subName}', subcategories[0].name);
+  const sub = subcategories[0];
 
-    await client.sendMessage(phone, msg);
+  // Replace placeholder {subName} with actual subcategory name
+  const msg = (oneMsg?.text || 'Send the number of the type you want to see')
+    .replace('{subName}', sub.name);
 
-    return {
-      nextState: 'subsub_category_selection',
-      selectedSubcategory: subcategories[0],
-    };
-  }
+  await client.sendMessage(phone, msg);
+
+  return {
+    nextState: 'subsub_category_selection',
+    selectedSubcategory: sub,
+  };
+}
+
 
   // 📂 Multiple subcategories → list them
   const selectMsg = await botMessageRepo.findOne({
     where: {
-      business_id: business.id,
+      business_id: business!.id,
       language,
       key_name: 'select_subcategory',
     },
@@ -115,7 +122,7 @@ export async function selectSubCategory(
 
   const backMsg = await botMessageRepo.findOne({
     where: {
-      business_id: business.id,
+      business_id: business!.id,
       language,
       key_name: 'select_subcategory_go_back',
     },
