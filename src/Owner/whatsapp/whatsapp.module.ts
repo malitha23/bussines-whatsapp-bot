@@ -25,6 +25,10 @@ import { DashboardModule } from '../../dashboard/dashboard.module';
 import { QuickStatsGateway } from '../../gateway/quick-stats.gateway';
 import { GptService } from './gpt.service';
 import { GptBytezService } from './gpt-bytez.service';
+import { GptBytezServiceAdvance } from './advance-gpt-service';
+import { MessageHandlerServiceAdvance } from './service/whatsapp-message.handler-advance';
+import { InventoryTransaction } from '../../database/entities/inventory-transaction.entity';
+import { BusinessSettings } from '../../database/entities/business-settings.entity';
 
 @Module({
   imports: [
@@ -40,7 +44,9 @@ import { GptBytezService } from './gpt-bytez.service';
       OrderItem,
       OrderCancellation,
       BusinessPaymentOption,
-      BusinessDeliveryFee
+      BusinessDeliveryFee,
+      InventoryTransaction,
+      BusinessSettings
     ]),
 
     OwnerModule,
@@ -50,11 +56,13 @@ import { GptBytezService } from './gpt-bytez.service';
     WhatsAppService,
     WhatsAppClientManager,
     WhatsAppMessageHandler,
+    MessageHandlerServiceAdvance,
     MessagesService,
     WhatsAppGateway,
     QuickStatsGateway, // <-- ADD THIS
     GptService,
-    GptBytezService
+    GptBytezService,
+    GptBytezServiceAdvance
   ],
   controllers: [WhatsAppController],
   exports: [WhatsAppClientManager],

@@ -1,11 +1,9 @@
-import { Client } from 'whatsapp-web.js';
 import { Repository } from 'typeorm';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
 
-
 export async function handleCancellationResponse(
-  client: Client,
+  client: any,
   phone: string,
   text: string,
   businessId: number,
@@ -13,17 +11,35 @@ export async function handleCancellationResponse(
   saveUserState: Function,
   userStateRepo: Repository<any>, // Your UserState entity
   botMessageRepo: Repository<BotMessage>,
-  language: string
+  language: string,
+  sendManager: any,
 ) {
   // Fetch current user state
-  const userState = await userStateRepo.findOne({ where: { phone, business_id: businessId } });
-  const stateData: any = userState?.last_message ? JSON.parse(userState.last_message) : {};
+  const userState = await userStateRepo.findOne({
+    where: { phone, business_id: businessId },
+  });
+  const stateData: any = userState?.last_message
+    ? JSON.parse(userState.last_message)
+    : {};
 
   if (!stateData.orderId) {
-    const errMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_error_no_order');
-    await client.sendMessage(phone, errMsg);
+    const errMsg = await getBotMessage(
+      botMessageRepo,
+      businessId,
+      language,
+      'cancellation_error_no_order',
+    );
+    await sendManager.sendMessage({ phone, text: errMsg });
 
-    await saveUserState(businessId, phone, name, {}, 'main_menu', language, 'main_menu');
+    await saveUserState(
+      businessId,
+      phone,
+      name,
+      {},
+      'main_menu',
+      language,
+      'main_menu',
+    );
     return 'error';
   }
 
@@ -31,19 +47,48 @@ export async function handleCancellationResponse(
 
   if (textUpper === 'YES') {
     // Ask for cancellation reason
-    const reasonMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_ask_reason');
-    await client.sendMessage(phone, reasonMsg);
+    const reasonMsg = await getBotMessage(
+      botMessageRepo,
+      businessId,
+      language,
+      'cancellation_ask_reason',
+    );
+    await sendManager.sendMessage({ phone, text: reasonMsg });
 
-    await saveUserState(businessId, phone, name, stateData, 'enter_cancellation_reason');
+    await saveUserState(
+      businessId,
+      phone,
+      name,
+      stateData,
+      'enter_cancellation_reason',
+    );
   } else if (textUpper === 'NO') {
     // Keep order → back to menu
-    const keepMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_keep_order');
-    await client.sendMessage(phone, keepMsg);
+    const keepMsg = await getBotMessage(
+      botMessageRepo,
+      businessId,
+      language,
+      'cancellation_keep_order',
+    );
+    await sendManager.sendMessage({ phone, text: keepMsg });
 
-    await saveUserState(businessId, phone, name, {}, 'main_menu', language, 'main_menu');
+    await saveUserState(
+      businessId,
+      phone,
+      name,
+      {},
+      'main_menu',
+      language,
+      'main_menu',
+    );
   } else {
     // Invalid input
-    const invalidMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_invalid_input');
-    await client.sendMessage(phone, invalidMsg);
+    const invalidMsg = await getBotMessage(
+      botMessageRepo,
+      businessId,
+      language,
+      'cancellation_invalid_input',
+    );
+    await sendManager.sendMessage({ phone, text: invalidMsg });
   }
 }

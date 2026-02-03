@@ -275,6 +275,8 @@ export class OrderService {
             Object.assign(tracking, dto);
         }
 
+        await this.ownerOrderService.sendTrackingUpdate(orderId, dto);
+
         return await this.trackingRepo.save(tracking);
     }
 
@@ -367,62 +369,6 @@ export class OrderService {
         };
     }
 
-    // -------------------------------------------------------
-    // UPDATE ORDER STATUS
-    // -------------------------------------------------------
-    // async updateOrderStatus(email: string, orderId: number, statusData: any) {
-    //     const { business, businessId } = await this.getBusinessByUser(email);
-    //     const user = await this.userRepo.findOne({ where: { email } });
-
-    //     const order = await this.orderRepo.findOne({
-    //         where: { id: orderId, business: { id: businessId } },
-    //         relations: ['customer']
-    //     });
-
-    //     if (!order) {
-    //         throw new NotFoundException('Order not found');
-    //     }
-
-    //     const oldStatus = order.status;
-    //     const oldPaymentStatus = order.payment_status;
-    //     const oldDeliveryStatus = order.delivery_status;
-
-    //     // Update status fields
-    //     if (statusData.status) order.status = statusData.status;
-    //     if (statusData.payment_status) order.payment_status = statusData.payment_status;
-    //     if (statusData.delivery_status) order.delivery_status = statusData.delivery_status;
-
-    //     // Special handling for refund status
-    //     if (statusData.payment_status === 'refund') {
-    //         // Update inventory stock when refunding
-    //         await this.handleOrderRefund(orderId);
-    //     }
-
-    //     // Special handling for delivery status changes
-    //     if (statusData.delivery_status === 'shipped' || statusData.delivery_status === 'delivered') {
-    //         // Update order status accordingly
-    //         order.status = statusData.delivery_status === 'shipped' ? 'shipped' : 'delivered';
-    //     }
-
-    //     const updatedOrder = await this.orderRepo.save(order);
-
-    //     // Log activity
-    //     const changes: string[] = [];
-    //     if (oldStatus !== order.status) changes.push(`status from "${oldStatus}" to "${order.status}"`);
-    //     if (oldPaymentStatus !== order.payment_status) changes.push(`payment status from "${oldPaymentStatus}" to "${order.payment_status}"`);
-    //     if (oldDeliveryStatus !== order.delivery_status) changes.push(`delivery status from "${oldDeliveryStatus}" to "${order.delivery_status}"`);
-
-    //     if (changes.length > 0) {
-    //         await this.activityService.logActivity(
-    //             user!,
-    //             business,
-    //             `updated order #${orderId}: ${changes.join(', ')}`,
-    //         );
-    //     }
-
-    //     return updatedOrder;
-    // }
-
     async updateOrderStatus(email: string, orderId: number, statusData: any) {
         const { business, businessId } = await this.getBusinessByUser(email);
         const user = await this.userRepo.findOne({ where: { email } });
@@ -446,7 +392,7 @@ export class OrderService {
         if (statusData.status) order.status = statusData.status;
         if (statusData.payment_status) order.payment_status = statusData.payment_status;
         if (statusData.delivery_status) order.delivery_status = statusData.delivery_status;
-
+        if(statusData.status === 'paid') order.payment_status = 'paid';
         const allowedStatuses: OrderStatus[] = [
             'pending',
             'confirmed',
@@ -462,15 +408,20 @@ export class OrderService {
             'partially_refunded',
         ];
 
-
+    
         if (statusData.status) {
             if (allowedStatuses.includes(statusData.status)) {
-                this.ownerOrderService.updateOrderStatus(orderId, statusData.status);
+                this.ownerOrderService.updateOrderStatus(orderId, statusData.status, statusData.notes);
             }
         }
 
-        if (statusData.payment_status === 'refund') {
+        if (statusData.payment_status === 'refunded' || statusData.payment_status === 'paid') {
             await this.ownerOrderService.updatePaymentStatus(orderId, statusData.payment_status);
+        }
+
+        if (order.payment_method === 'cod' && (statusData.status === 'confirmed' || statusData.status === 'canceled' || statusData.status === 'returned')) {
+           
+            await this.ownerOrderService.updateCodInventory(orderId, order.status);
         }
 
         const updatedOrder = await this.orderRepo.save(order);
@@ -496,31 +447,6 @@ export class OrderService {
 
         return updatedOrder;
     }
-
-
-    // -------------------------------------------------------
-    // HANDLE ORDER REFUND (Restore stock)
-    // -------------------------------------------------------
-    // private async handleOrderRefund(orderId: number) {
-    //     const order = await this.orderRepo.findOne({
-    //         where: { id: orderId },
-    //         relations: ['items', 'items.variant']
-    //     });
-
-    //     if (!order || !order.items) return;
-
-    //     // Restore stock for each item
-    //     for (const item of order.items) {
-    //         const variant = await this.variantRepo.findOne({
-    //             where: { id: item.variant.id }
-    //         });
-
-    //         if (variant) {
-    //             variant.stock = Number(variant.stock) + Number(item.quantity);
-    //             await this.variantRepo.save(variant);
-    //         }
-    //     }
-    // }
 
     // -------------------------------------------------------
     // CREATE ORDER CANCELLATION REQUEST
@@ -599,11 +525,11 @@ export class OrderService {
 
             if (order) {
                 order.status = 'canceled';
-                order.payment_status = order.payment_status === 'paid' ? 'refund' : order.payment_status;
+                order.payment_status = order.payment_status === 'paid' ? 'refunded' : order.payment_status;
                 await this.orderRepo.save(order);
 
                 // Restore stock
-                await this.ownerOrderService.updatePaymentStatus(order.id, 'refund');
+                await this.ownerOrderService.updatePaymentStatus(order.id, 'refunded');
             }
         }
 

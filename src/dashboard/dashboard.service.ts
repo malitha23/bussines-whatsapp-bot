@@ -39,7 +39,7 @@ export class DashboardService {
     where: { business: { id: businessId }, delivery_status: 'pending' },
   });
 
-  // 🔥 1. pending delivery + paid payment
+
   const pendingDeliveryPaid = await this.orderRepository.count({
     where: {
       business: { id: businessId },
@@ -48,7 +48,7 @@ export class DashboardService {
     },
   });
 
-  // 🔥 2. pending delivery + pending payment
+ 
   const pendingDeliveryPendingPayment = await this.orderRepository.count({
     where: {
       business: { id: businessId },
@@ -57,24 +57,24 @@ export class DashboardService {
     },
   });
 
-  // 🔥 3. delivery shipped
+  
   const shippedOrders = await this.orderRepository.count({
     where: { business: { id: businessId }, delivery_status: 'shipped' },
   });
 
-  // 🔥 4. delivery delivered
+  
   const deliveredOrders = await this.orderRepository.count({
     where: { business: { id: businessId }, delivery_status: 'delivered' },
   });
 
-  // 🔥 5. payment failed
+
   const failedPayments = await this.orderRepository.count({
     where: { business: { id: businessId }, payment_status: 'failed' },
   });
 
-  // 🔥 6. refunded payments
+ 
   const refundedPayments = await this.orderRepository.count({
-    where: { business: { id: businessId }, payment_status: 'refund' },
+    where: { business: { id: businessId }, payment_status: 'refunded' },
   });
 
   const pendingRefundRequests = await this.orderCancellationRepository

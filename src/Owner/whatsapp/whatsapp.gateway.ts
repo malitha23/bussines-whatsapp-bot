@@ -76,6 +76,13 @@ export class WhatsAppGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.sendToBusiness(businessId, { type: 'authenticated' });
   }
 
+  sendConnecting(businessId: number) {
+    this.sendToBusiness(businessId, {
+      type: 'connecting',
+      message: 'Connecting to WhatsApp...',
+    });
+  }
+
   sendDisconnected(businessId: number) {
     this.sendToBusiness(businessId, { type: 'disconnected' });
   }

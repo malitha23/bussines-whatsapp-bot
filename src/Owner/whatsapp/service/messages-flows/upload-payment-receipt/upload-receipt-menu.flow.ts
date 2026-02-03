@@ -1,15 +1,16 @@
-import { Client } from 'whatsapp-web.js';
+
 import { Repository } from 'typeorm';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
 
 
 export async function showUploadReceiptMenu(
-  client: Client,
+  client: any,
   phone: string,
   language: string,
   businessId: number,
-  botMessageRepo: Repository<BotMessage>
+  botMessageRepo: Repository<BotMessage>,
+  sendManager: any
 ) {
   
   // Fetch each message using the helper
@@ -21,5 +22,5 @@ export async function showUploadReceiptMenu(
   // Construct message
   const fullMessage = `${header}\n\n1️⃣ ${option1}\n2️⃣ ${option2}\n\n${goBack}`;
 
-  await client.sendMessage(phone, fullMessage);
+  await sendManager.sendMessage({phone, text: fullMessage});
 }

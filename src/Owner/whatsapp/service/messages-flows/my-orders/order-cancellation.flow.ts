@@ -1,4 +1,4 @@
-import { Client } from 'whatsapp-web.js';
+
 import { In, Repository } from 'typeorm';
 import { Order } from '../../../../../database/entities/order.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
@@ -8,7 +8,7 @@ import { CANCELLABLE_DELIVERY_STATUSES, CANCELLABLE_ORDER_STATUSES } from './lis
 
 
 export async function startCancellationFlow(
-  client: Client,
+  client: any,
   phone: string,
   text: string,
   businessId: number,
@@ -17,7 +17,8 @@ export async function startCancellationFlow(
   orderRepo: Repository<Order>,
   botMessageRepo: Repository<BotMessage>,
   language: string,
-  orderCancellationRepo: Repository<OrderCancellation>
+  orderCancellationRepo: Repository<OrderCancellation>,
+  sendManager: any
 ) {
   const orderId = parseInt(text);
 
@@ -39,12 +40,12 @@ export async function startCancellationFlow(
 
   if (!order || existingCancellation) {
     const invalidMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_invalid_order');
-    await client.sendMessage(phone, invalidMsg);
+    await sendManager.sendMessage({phone, text: invalidMsg});
     return;
   }
 
   await saveUserState(businessId, phone, name, { orderId }, 'awaiting_cancellation_reason');
 
   const confirmMsg = await getBotMessage(botMessageRepo, businessId, language, 'cancellation_confirm_prompt');
-  await client.sendMessage(phone, confirmMsg);
+  await sendManager.sendMessage({phone, text: confirmMsg});
 }

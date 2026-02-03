@@ -1,15 +1,15 @@
-import { Client } from 'whatsapp-web.js';
 import { Repository } from 'typeorm';
 import { Business } from '../../../../../database/entities/business.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity'; // Your BotMessage entity
 
 export async function showCategories(
-  client: Client,
+  client: any,
   phone: string,
   businessId: number,
   language: string,
   businessRepo: Repository<Business>,
   botMessageRepo: Repository<BotMessage>,
+  sendManager: any,
 ) {
   // Fetch the business with relations
   const business = await businessRepo.findOne({
@@ -24,9 +24,16 @@ export async function showCategories(
 
   if (!business) {
     const msgRow = await botMessageRepo.findOne({
-      where: { business_id: businessId, language, key_name: 'select_category_business_not_found' },
+      where: {
+        business_id: businessId,
+        language,
+        key_name: 'select_category_business_not_found',
+      },
     });
-    await client.sendMessage(phone, msgRow?.text || '❌ Business not found.');
+    await sendManager.sendMessage({
+      phone,
+      text: msgRow?.text || '❌ Business not found.',
+    });
     return { nextState: null };
   }
 
@@ -34,9 +41,16 @@ export async function showCategories(
 
   if (categories.length === 0) {
     const msgRow = await botMessageRepo.findOne({
-      where: { business_id: businessId, language, key_name: 'select_category_no_categories' },
+      where: {
+        business_id: businessId,
+        language,
+        key_name: 'select_category_no_categories',
+      },
     });
-    await client.sendMessage(phone, msgRow?.text || '❌ No categories available for ordering.');
+    await sendManager.sendMessage({
+      phone,
+      text: msgRow?.text || '❌ No categories available for ordering.',
+    });
     return { nextState: null };
   }
 
@@ -44,21 +58,26 @@ export async function showCategories(
   if (categories.length === 1) {
     const cat = categories[0];
     const msgRow = await botMessageRepo.findOne({
-      where: { business_id: businessId, language, key_name: 'select_category_only_one_category' },
+      where: {
+        business_id: businessId,
+        language,
+        key_name: 'select_category_only_one_category',
+      },
     });
 
-    const msg = (msgRow?.text || `📂 Only one category found: *{categoryName}*\nShowing its subcategories: *{categoryName}*`)
-      .replace(/{categoryName}/g, cat.name);
+    const msg = (
+      msgRow?.text ||
+      `📂 Only one category found: *{categoryName}*\nShowing its subcategories: *{categoryName}*`
+    ).replace(/{categoryName}/g, cat.name);
 
-    await client.sendMessage(phone, msg);
+    await sendManager.sendMessage(phone, { text: msg });
 
     return {
       nextState: 'subcategory_selection',
       selectedCategory: cat,
-      autoShowSubcategories: true
+      autoShowSubcategories: true,
     };
   }
-
 
   // Multiple categories → show numbered list
   const msgRow = await botMessageRepo.findOne({
@@ -71,10 +90,14 @@ export async function showCategories(
 
   // Add Go Back message
   const goBackRow = await botMessageRepo.findOne({
-    where: { business_id: businessId, language, key_name: 'select_category_go_back' },
+    where: {
+      business_id: businessId,
+      language,
+      key_name: 'select_category_go_back',
+    },
   });
   msg += `\n${goBackRow?.text || '➡️ Go Back: Type 0'}`;
 
-  await client.sendMessage(phone, msg);
+  await sendManager.sendMessage({ phone, text: msg });
   return { nextState: 'category_selection' };
 }

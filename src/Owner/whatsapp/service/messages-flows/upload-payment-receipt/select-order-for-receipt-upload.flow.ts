@@ -1,4 +1,4 @@
-import { Client } from 'whatsapp-web.js';
+
 import { IsNull, Repository } from 'typeorm';
 import { Order } from '../../../../../database/entities/order.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
@@ -6,7 +6,7 @@ import { getBotMessage } from '../../../helpers/getBotMessage';
 
 
 export async function selectOrderForReceiptUpload(
-  client: Client,
+  client: any,
   phone: string,
   businessId: number,
   name: string,
@@ -16,7 +16,8 @@ export async function selectOrderForReceiptUpload(
   orderRepo: Repository<Order>,
   botMessageRepo: Repository<BotMessage>,
   handleUploadPaymentReceipt: Function, // callback for option 0
-  sendMainMenu: Function
+  sendMainMenu: Function,
+  sendManager: any
 ) {
   const selectedOrderId = cleanText;
 
@@ -42,7 +43,7 @@ export async function selectOrderForReceiptUpload(
   // ---- Validate numeric input ----
   if (isNaN(Number(selectedOrderId))) {
     const invalidMsg = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_invalid_order_id');
-    await client.sendMessage(phone, invalidMsg);
+    await sendManager.sendMessage({phone, text: invalidMsg});
     return;
   }
 
@@ -58,7 +59,7 @@ export async function selectOrderForReceiptUpload(
 
   if (!order || order.customer?.phone !== phone) {
     const notFoundMsg = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_order_not_found');
-    await client.sendMessage(phone, notFoundMsg.replace('{orderId}', selectedOrderId));
+    await sendManager.sendMessage({phone, text: notFoundMsg.replace('{orderId}', selectedOrderId)});
     return;
   }
 
@@ -81,5 +82,5 @@ export async function selectOrderForReceiptUpload(
 
   // ---- Ask for the receipt image ----
   const uploadMsg = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_ask_image');
-  await client.sendMessage(phone, uploadMsg.replace('{orderId}', selectedOrderId));
+  await sendManager.sendMessage({phone, text: uploadMsg.replace('{orderId}', selectedOrderId)});
 }

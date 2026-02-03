@@ -27,7 +27,8 @@ async function sendBotMessage(
   businessId: number,
   key: string,
   language: string,
-  replacements?: Record<string, string | number>
+  sendManager: any,
+  replacements?: Record<string, string | number>,
 ) {
   const msgRecord = await botMessageRepo.findOne({ where: { business_id: businessId, key_name: key, language } });
   if (!msgRecord) return;
@@ -39,7 +40,7 @@ async function sendBotMessage(
     }
   }
 
-  await client.sendMessage(phone, text);
+  await sendManager.sendMessage({phone, text:  text});
 }
 
 // Main quantity input handler
@@ -53,11 +54,12 @@ export async function handleQuantityInput(
   saveState: Function,
   productRepo: Repository<any>,
   botMessageRepo: Repository<BotMessage>,
-  language: string
+  language: string,
+  sendManager: any
 ) {
   if (text === "0") {
     await saveState(businessId, phone, '', stateData, 'variant_selection');
-    await sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_back_to_variants', language);
+    await sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_back_to_variants', language, sendManager);
     return;
   }
 
@@ -67,17 +69,17 @@ export async function handleQuantityInput(
   });
 
   if (!product) {
-    return sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_product_not_found', language);
+    return sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_product_not_found', language, sendManager);
   }
 
   const variant = product.variants.find((v: { id: any }) => v.id === stateData.variantId);
   if (!variant) {
-    return sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_variant_not_found', language);
+    return sendBotMessage(client, phone, botMessageRepo, businessId, 'variant_file_variant_not_found', language, sendManager);
   }
 
   const parsed = parseQuantity(text, variant.unit);
   if (!parsed) {
-    return sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_invalid_input', language);
+    return sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_invalid_input', language, sendManager);
   }
 
   let { qty, unit, originalInput } = parsed;
@@ -88,12 +90,12 @@ export async function handleQuantityInput(
   if (unit === 'ml' && variant.unit === 'l') stock = variant.stock * 1000;
 
   if (qty > stock) {
-    return sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_not_enough_stock', language, { stock: variant.stock });
+    return sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_not_enough_stock', language, sendManager, { stock: variant.stock });
   }
 
   // Save quantity and prompt name
   stateData.quantity = qty;
   stateData.unit = unit;
   await saveState(businessId, phone, '', stateData, 'collect_customer_name');
-  await sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_accepted', language, { input: originalInput });
+  await sendBotMessage(client, phone, botMessageRepo, businessId, 'quantity_file_accepted', language, sendManager, { input: originalInput });
 }

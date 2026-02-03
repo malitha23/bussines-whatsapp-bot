@@ -1,22 +1,30 @@
 import { Injectable } from '@nestjs/common';
-import { Client, MessageMedia } from 'whatsapp-web.js';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserState } from '../../../database/entities/user_states.entity';
 import { Business } from '../../../database/entities/business.entity';
 import { showCategories } from './messages-flows/place-order/category.flow';
 import { selectSubCategory } from './messages-flows/place-order/subcategory.flow';
-import { selectSubSubCategory, sendProductsList } from './messages-flows/place-order/subsub-category.flow';
+import {
+  selectSubSubCategory,
+  sendProductsList,
+} from './messages-flows/place-order/subsub-category.flow';
 import { MessagesService } from './MessagesService/MessagesService';
 import { BotMessage } from '../../../database/entities/bot-messages.entity';
-import { handleVariantSelection, sendVariantsList } from './messages-flows/place-order/variant.flow';
+import {
+  handleVariantSelection,
+  sendVariantsList,
+} from './messages-flows/place-order/variant.flow';
 import { handleQuantityInput } from './messages-flows/place-order/quantity.flow';
 import { handleCustomerDetails } from './messages-flows/place-order/customer-data.flow';
 import { confirmOrder } from './messages-flows/place-order/confirm-order.flow';
 import { Product } from '../../../database/entities/product.entity';
 import { Customer } from '../../../database/entities/customer.entity';
 import { ProductVariant } from '../../../database/entities/product-variant.entity';
-import { handlePaymentMethod, handlePaymentReceipt } from './messages-flows/place-order/customer-payments.flow';
+import {
+  handlePaymentMethod,
+  handlePaymentReceipt,
+} from './messages-flows/place-order/customer-payments.flow';
 import { Order } from '../../../database/entities/order.entity';
 import { OrderItem } from '../../../database/entities/order-item.entity';
 import { handleProductSelection } from './messages-flows/place-order/product.flow';
@@ -34,10 +42,15 @@ import { showOrderHistoryMenu } from './messages-flows/my-orders/order-history-m
 import { QuickStatsGateway } from '../../../gateway/quick-stats.gateway';
 import { GptService } from '../gpt.service';
 import { GptBytezService } from '../gpt-bytez.service';
-
+import { console } from 'inspector';
+import { TypingAndSeenManager } from './typingAndSeenManager';
+import { SendTextMessagesManager } from './sendMessageManager';
 @Injectable()
 export class WhatsAppMessageHandler {
-  private conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant', content: string }>>();
+  private conversationHistory = new Map<
+    string,
+    Array<{ role: 'user' | 'assistant'; content: string }>
+  >();
 
   constructor(
     private readonly gptService: GptService,
@@ -65,36 +78,64 @@ export class WhatsAppMessageHandler {
     @InjectRepository(BusinessPaymentOption)
     private readonly businessPaymentOptionRepo: Repository<BusinessPaymentOption>,
     @InjectRepository(BusinessDeliveryFee)
-    private readonly deliveryFeeRepo: Repository<BusinessDeliveryFee>
-  ) { }
+    private readonly deliveryFeeRepo: Repository<BusinessDeliveryFee>,
+  ) {}
 
   // ==============================
   // Main handler with AI support
   // ==============================
   async handleIncomingMessage(
-    client: Client,
+    client: any,
     businessId: number,
     phone: string,
     name: string,
     text: string,
-    msg: any
+    msg: any,
   ) {
+ 
+    const typingManager = TypingAndSeenManager.getInstance(client);
+    await typingManager.seenAndTyping(msg, phone);
+
+    const sendManager = SendTextMessagesManager.getInstance(client);
+
     const cleanText = text?.trim().toLowerCase();
-    const business = await this.businessRepo.findOne({ where: { id: businessId } });
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+    });
     if (!business) return;
 
-    let userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
+    let userState = await this.userStateRepo.findOne({
+      where: { phone, business_id: businessId },
+    });
 
     // 🟢 If no language set, ask first
     if (!userState?.language) {
       if (!cleanText || !['1', '2', '3'].includes(cleanText)) {
-        await this.sendLanguageSelection(client, phone);
+        await this.sendLanguageSelection(client, phone, sendManager);
+        console.log(
+          `📩 New message from ${phone} (Business ${businessId}): ${text}`,
+        );
+        console.log(text);
         return;
       }
 
       let language = cleanText === '1' ? 'en' : cleanText === '2' ? 'si' : 'ta';
-      await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
-      await this.sendMainMenu(client, phone, businessId, business.name, language);
+      await this.saveUserState(
+        businessId,
+        phone,
+        name,
+        {},
+        'main_menu',
+        language,
+      );
+      await this.sendMainMenu(
+        client,
+        phone,
+        businessId,
+        business.name,
+        language,
+        sendManager,
+      );
       return;
     }
 
@@ -104,16 +145,29 @@ export class WhatsAppMessageHandler {
 
     // If in customer service mode, handle with AI
     if (state === 'customer_service_mode') {
-      const lastMessageData = userState?.last_message ? JSON.parse(userState.last_message) : {};
+      const lastMessageData = userState?.last_message
+        ? JSON.parse(userState.last_message)
+        : {};
       const enteredAt = lastMessageData.enteredAt || null;
 
       // Calculate hours passed
-      const hoursPassed = enteredAt ? (Date.now() - enteredAt) / (1000 * 60 * 60) : null;
+      const hoursPassed = enteredAt
+        ? (Date.now() - enteredAt) / (1000 * 60 * 60)
+        : null;
 
       // Auto exit after 24 hours
       if (hoursPassed && hoursPassed > 24) {
-        const messageText = await getBotMessage(this.botMessageRepo, businessId, language, 'customer_service_expired');
-        await client.sendMessage(phone, messageText);
+        const messageText = await getBotMessage(
+          this.botMessageRepo,
+          businessId,
+          language,
+          'customer_service_expired',
+        );
+
+        await sendManager.sendMessage({
+          phone,
+          text: messageText,
+        });
 
         // Reset to main menu
         await this.saveUserState(businessId, phone, name, {}, 'main_menu');
@@ -122,63 +176,140 @@ export class WhatsAppMessageHandler {
 
       // If user types menu, return to bot
       if (cleanText === 'menu') {
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
         await this.saveUserState(businessId, phone, name, {}, 'main_menu');
         return;
       }
 
       // Handle with AI conversation
-      await this.handleAIConversation(client, phone, text, businessId, name, language, state);
+      await this.handleAIConversation(
+        client,
+        phone,
+        text,
+        businessId,
+        name,
+        language,
+        state,
+        sendManager,
+      );
       return;
     }
 
     // === Check if user needs AI assistance ===
-    const customerStates = [
-      'collect_customer_name',
-      'collect_customer_address',
-      'collect_customer_email',
-      'collect_customer_phone'
-    ];
+    // const customerStates = [
+    //   'collect_customer_name',
+    //   'collect_customer_address',
+    //   'collect_customer_email',
+    //   'collect_customer_phone',
+      
+    // ];
 
-    if (!customerStates.includes(state)) {
-      const shouldUseAI = await this.shouldUseAIForMessage(text, state, language);
-      if (shouldUseAI) {
-        await this.handleAIConversation(client, phone, text, businessId, name, language, state);
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
-        return;
-      }
-    }
+    // if (!customerStates.includes(state)) {
+    //   const shouldUseAI = await this.shouldUseAIForMessage(
+    //     text,
+    //     state,
+    //     language,
+    //   );
+    //   if (shouldUseAI) {
+    //     await this.handleAIConversation(
+    //       client,
+    //       phone,
+    //       text,
+    //       businessId,
+    //       name,
+    //       language,
+    //       state,
+    //       sendManager,
+    //     );
+    //     await this.sendMainMenu(
+    //       client,
+    //       phone,
+    //       businessId,
+    //       business.name,
+    //       language,
+    //       sendManager,
+    //     );
+    //     await this.saveUserState(
+    //       businessId,
+    //       phone,
+    //       name,
+    //       {},
+    //       'main_menu',
+    //       language,
+    //     );
+    //     return;
+    //   }
+    // }
+    
 
     // === Restart flow ===
     if (cleanText === 'hi' || cleanText === 'hello' || cleanText === 'menu') {
-      await this.sendMainMenu(client, phone, businessId, business.name, language);
-      await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
+      await this.sendMainMenu(
+        client,
+        phone,
+        businessId,
+        business.name,
+        language,
+        sendManager,
+      );
+      await this.saveUserState(
+        businessId,
+        phone,
+        name,
+        {},
+        'main_menu',
+        language,
+      );
       return;
     }
 
     // === Main menu back shortcut (only when NOT inside place-order) ===
     const placeOrderStates = new Set([
-      'category_selection', 'subcategory_selection',
-      'subsub_category_selection', 'product_selection',
-      'variant_selection', 'quantity_input',
+      'category_selection',
+      'subcategory_selection',
+      'subsub_category_selection',
+      'product_selection',
+      'variant_selection',
+      'quantity_input',
       'confirm_order',
       'select_payment_method',
       'upload_payment_receipt',
-      'order_history_menu'
+      'order_history_menu',
+      'main_menu'
     ]);
 
     const myOrdersSubMenus = new Set([
-      'pending_orders', 'confirmed_orders', 'paid_orders',
-      'shipped_orders', 'delivered_orders', 'canceled_orders', 'refunded_orders', 'select_order_for_receipt_upload'
+      'awaiting_order_cancellation',
+      'pending_orders',
+      'confirmed_orders',
+      'paid_orders',
+      'shipped_orders',
+      'delivered_orders',
+      'canceled_orders',
+      'refunded_orders',
+      'select_order_for_receipt_upload',
     ]);
-
 
     if (cleanText === '0') {
       // If inside a My Orders submenu → go back to order_history_menu
       if (myOrdersSubMenus.has(state)) {
         const prevState = userState?.previous_state || 'main_menu';
-        await this.restorePreviousState(client, businessId, phone, name, business, prevState);
+        await this.restorePreviousState(
+          client,
+          businessId,
+          phone,
+          name,
+          business,
+          prevState,
+          sendManager,
+        );
         return;
       }
 
@@ -188,13 +319,29 @@ export class WhatsAppMessageHandler {
 
         // Special handling for subsub_category_selection
         if (state === 'subsub_category_selection') {
-
-          const stateData = userState?.last_message ? JSON.parse(userState.last_message) : {};
+          const stateData = userState?.last_message
+            ? JSON.parse(userState.last_message)
+            : {};
           await this.handleSubCategorySelectionBack(
-            client, businessId, phone, name, business, stateData, language
+            client,
+            businessId,
+            phone,
+            name,
+            business,
+            stateData,
+            language,
+            sendManager
           );
         } else {
-          await this.restorePreviousState(client, businessId, phone, name, business, prevState);
+          await this.restorePreviousState(
+            client,
+            businessId,
+            phone,
+            name,
+            business,
+            prevState,
+            sendManager,
+          );
         }
         return;
       }
@@ -208,44 +355,126 @@ export class WhatsAppMessageHandler {
       if (cleanText === '3') newLang = 'ta';
 
       if (newLang) {
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', newLang);
-        await this.sendMainMenu(client, phone, businessId, business.name, newLang);
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'main_menu',
+          newLang,
+        );
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          newLang,
+          sendManager,
+        );
       } else {
-        await this.sendLanguageSelection(client, phone);
+        await this.sendLanguageSelection(client, phone, sendManager);
       }
       return;
     }
 
-    // === State handling === 
+    // === State handling ===
     switch (state) {
       case 'main_menu':
-        await this.handleMainMenu(client, phone, name, businessId, cleanText, language);
+        await this.handleMainMenu(
+          client,
+          phone,
+          name,
+          businessId,
+          cleanText,
+          language,
+          sendManager,
+        );
         break;
 
       case 'business_info':
         if (cleanText === '0') {
-          await this.sendMainMenu(client, phone, businessId, business.name, language);
+          await this.sendMainMenu(
+            client,
+            phone,
+            businessId,
+            business.name,
+            language,
+            sendManager,
+          );
           await this.saveUserState(businessId, phone, name, {}, 'main_menu');
         } else {
-          const messageText = await getBotMessage(this.botMessageRepo, businessId, language, 'invalid_input_main_menu');
-          await client.sendMessage(phone, messageText);
+          const messageText = await getBotMessage(
+            this.botMessageRepo,
+            businessId,
+            language,
+            'invalid_input_main_menu',
+          );
+          await sendManager.sendMessage({
+            phone,
+            text: messageText,
+          });
         }
         break;
 
       case 'order_history_menu':
-        await this.handleOrderHistoryMenu(client, phone, name, businessId, cleanText, language);
+        await this.handleOrderHistoryMenu(
+          client,
+          phone,
+          name,
+          businessId,
+          cleanText,
+          language,
+          sendManager,
+        );
         break;
 
       case 'awaiting_order_cancellation':
-        await startCancellationFlow(client, phone, cleanText, businessId, name, this.saveUserState.bind(this), this.orderRepo, this.botMessageRepo, language, this.orderCancellationRepo);
+        await startCancellationFlow(
+          client,
+          phone,
+          cleanText,
+          businessId,
+          name,
+          this.saveUserState.bind(this),
+          this.orderRepo,
+          this.botMessageRepo,
+          language,
+          this.orderCancellationRepo,
+          sendManager
+        );
         break;
 
       case 'awaiting_cancellation_reason':
-        await handleCancellationResponse(client, phone, cleanText, businessId, name, this.saveUserState.bind(this), this.userStateRepo, this.botMessageRepo, language);
+        await handleCancellationResponse(
+          client,
+          phone,
+          cleanText,
+          businessId,
+          name,
+          this.saveUserState.bind(this),
+          this.userStateRepo,
+          this.botMessageRepo,
+          language,
+          sendManager
+        );
         break;
 
       case 'enter_cancellation_reason':
-        await enterCancellationReason(client, phone, text, businessId, name, this.saveUserState.bind(this), this.userStateRepo, this.orderRepo, this.orderCancellationRepo, this.botMessageRepo, language, this.quickStatsGateway);
+        await enterCancellationReason(
+          client,
+          phone,
+          text,
+          businessId,
+          name,
+          this.saveUserState.bind(this),
+          this.userStateRepo,
+          this.orderRepo,
+          this.orderCancellationRepo,
+          this.botMessageRepo,
+          language,
+          this.quickStatsGateway,
+          sendManager
+        );
         break;
 
       // case 'place_order':
@@ -255,7 +484,15 @@ export class WhatsAppMessageHandler {
       case 'product_selection':
       case 'variant_selection':
       case 'quantity_input':
-        await this.handlePlaceOrder(client, phone, businessId, cleanText, state, language);
+        await this.handlePlaceOrder(
+          client,
+          phone,
+          businessId,
+          cleanText,
+          state,
+          language,
+          sendManager,
+        );
         break;
 
       case 'enter_customer_details':
@@ -264,8 +501,12 @@ export class WhatsAppMessageHandler {
       case 'collect_customer_email':
       case 'collect_customer_phone':
         {
-          const userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
-          const stateData: any = userState?.last_message ? JSON.parse(userState.last_message) : {};
+          const userState = await this.userStateRepo.findOne({
+            where: { phone, business_id: businessId },
+          });
+          const stateData: any = userState?.last_message
+            ? JSON.parse(userState.last_message)
+            : {};
           await handleCustomerDetails(
             client,
             phone,
@@ -277,34 +518,75 @@ export class WhatsAppMessageHandler {
             this.saveUserState.bind(this),
             this.customerRepo,
             this.variantRepo,
-            this.botMessageRepo
+            this.botMessageRepo,
+            sendManager
           );
         }
         break;
 
       case 'confirm_order':
         {
-          const userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
-          const stateData: any = userState?.last_message ? JSON.parse(userState.last_message) : {};
-          await confirmOrder(client, phone, text, stateData, businessId, language, this.saveUserState.bind(this), this.businessPaymentOptionRepo, this.botMessageRepo);
+          const userState = await this.userStateRepo.findOne({
+            where: { phone, business_id: businessId },
+          });
+          const stateData: any = userState?.last_message
+            ? JSON.parse(userState.last_message)
+            : {};
+          await confirmOrder(
+            client,
+            phone,
+            text,
+            stateData,
+            businessId,
+            language,
+            this.saveUserState.bind(this),
+            this.businessPaymentOptionRepo,
+            this.botMessageRepo,
+            sendManager
+          );
         }
         break;
 
       case 'select_payment_method':
         {
-          const userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
-          const stateData: any = userState?.last_message ? JSON.parse(userState.last_message) : {};
-          await handlePaymentMethod(client, phone, text, stateData, businessId, language, this.saveUserState.bind(this), this.orderRepo, this.orderItemRepo, this.variantRepo, this.businessPaymentOptionRepo, this.deliveryFeeRepo, this.botMessageRepo, this.quickStatsGateway);
+          const userState = await this.userStateRepo.findOne({
+            where: { phone, business_id: businessId },
+          });
+          const stateData: any = userState?.last_message
+            ? JSON.parse(userState.last_message)
+            : {};
+          await handlePaymentMethod(
+            client,
+            phone,
+            text,
+            stateData,
+            businessId,
+            language,
+            this.saveUserState.bind(this),
+            this.orderRepo,
+            this.orderItemRepo,
+            this.variantRepo,
+            this.businessPaymentOptionRepo,
+            this.deliveryFeeRepo,
+            this.botMessageRepo,
+            this.quickStatsGateway,
+            sendManager
+          );
         }
         break;
 
       case 'upload_payment_receipt':
         {
-          const userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
-          const stateData: any = userState?.last_message ? JSON.parse(userState.last_message) : {};
+          const userState = await this.userStateRepo.findOne({
+            where: { phone, business_id: businessId },
+          });
+          const stateData: any = userState?.last_message
+            ? JSON.parse(userState.last_message)
+            : {};
+            
           await handlePaymentReceipt(
             client,
-            text,
+            msg,
             phone,
             stateData,
             businessId,
@@ -312,24 +594,48 @@ export class WhatsAppMessageHandler {
             this.saveUserState.bind(this),
             this.orderRepo,
             this.botMessageRepo,
-            this.quickStatsGateway
+            this.quickStatsGateway,
+            sendManager
           );
         }
         break;
 
       case 'post_payment':
         if (cleanText === '0') {
-          await this.sendMainMenu(client, phone, businessId, business.name, language);
+          await this.sendMainMenu(
+            client,
+            phone,
+            businessId,
+            business.name,
+            language,
+            sendManager,
+          );
           await this.saveUserState(businessId, phone, name, {}, 'main_menu');
         } else {
-          const msg = await getBotMessage(this.botMessageRepo, businessId, language, 'return_main_menu');
-          await client.sendMessage(phone, msg);
+          const msg = await getBotMessage(
+            this.botMessageRepo,
+            businessId,
+            language,
+            'return_main_menu',
+          );
+
+          await sendManager.sendMessage({
+            phone,
+            text: msg,
+          });
         }
         break;
 
       case 'select_receipt_option':
         if (cleanText === '0') {
-          await this.sendMainMenu(client, phone, businessId, business.name, language);
+          await this.sendMainMenu(
+            client,
+            phone,
+            businessId,
+            business.name,
+            language,
+            sendManager,
+          );
           await this.saveUserState(businessId, phone, name, {}, 'main_menu');
           return;
         }
@@ -343,7 +649,8 @@ export class WhatsAppMessageHandler {
           this.saveUserState.bind(this),
           this.sendMainMenu.bind(this),
           this.orderRepo,
-          this.botMessageRepo
+          this.botMessageRepo,
+          sendManager
         );
         break;
 
@@ -359,13 +666,23 @@ export class WhatsAppMessageHandler {
           this.orderRepo,
           this.botMessageRepo,
           handleUploadPaymentReceipt.bind(this),
-          this.sendMainMenu.bind(this)
+          this.sendMainMenu.bind(this),
+          sendManager
         );
         break;
 
       default:
         // If we don't recognize the state, use AI to handle
-        await this.handleAIConversation(client, phone, text, businessId, name, language, state);
+        await this.handleAIConversation(
+          client,
+          phone,
+          text,
+          businessId,
+          name,
+          language,
+          state,
+          sendManager,
+        );
     }
   }
 
@@ -373,15 +690,18 @@ export class WhatsAppMessageHandler {
   // AI Conversation Handler
   // ==============================
   private async handleAIConversation(
-    client: Client,
+    client: any,
     phone: string,
     text: string,
     businessId: number,
     name: string,
     language: string,
-    currentState: string
+    currentState: string,
+    sendManager: any,
   ) {
-    const business = await this.businessRepo.findOne({ where: { id: businessId } });
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+    });
     if (!business) return;
 
     // Get or initialize conversation history
@@ -400,10 +720,10 @@ export class WhatsAppMessageHandler {
         businessName: business.name,
         currentState: currentState,
         conversationHistory: history.slice(-5), // Last 5 messages
-        businessInfo: businessInfo
+        businessInfo: businessInfo,
       },
       language as 'en' | 'si' | 'ta',
-      { maxTokens: 300, temperature: 0.7 }
+      { maxTokens: 300, temperature: 0.7 },
     );
 
     // Update conversation history
@@ -418,7 +738,10 @@ export class WhatsAppMessageHandler {
     }
 
     // Send AI response
-    await client.sendMessage(phone, result.response);
+    await sendManager.sendMessage({
+      phone,
+      text: result.response,
+    });
 
     // If AI suggests an action, handle it
     if (!result.shouldContinue && result.suggestedAction) {
@@ -428,7 +751,8 @@ export class WhatsAppMessageHandler {
         businessId,
         name,
         language,
-        result.suggestedAction
+        result.suggestedAction,
+        sendManager,
       );
     }
 
@@ -440,7 +764,7 @@ export class WhatsAppMessageHandler {
         name,
         { enteredAt: Date.now(), conversationHistory: history },
         'customer_service_mode',
-        language
+        language,
       );
     }
   }
@@ -449,20 +773,37 @@ export class WhatsAppMessageHandler {
   // AI Suggested Action Handler
   // ==============================
   private async handleAISuggestedAction(
-    client: Client,
+    client: any,
     phone: string,
     businessId: number,
     name: string,
     language: string,
-    suggestedAction: string
+    suggestedAction: string,
+    sendManager: any,
   ) {
-    const business = await this.businessRepo.findOne({ where: { id: businessId } });
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+    });
     if (!business) return;
 
     switch (suggestedAction) {
       case 'main_menu':
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'main_menu',
+          language,
+        );
         break;
 
       // case 'place_order':
@@ -476,7 +817,8 @@ export class WhatsAppMessageHandler {
           businessId,
           language,
           this.businessRepo,
-          this.botMessageRepo
+          this.botMessageRepo,
+          sendManager
         );
 
         if (result?.nextState) {
@@ -484,9 +826,11 @@ export class WhatsAppMessageHandler {
             businessId,
             phone,
             name,
-            result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+            result.selectedCategory
+              ? { categoryId: result.selectedCategory.id }
+              : {},
             result.nextState,
-            language
+            language,
           );
 
           if (result.autoShowSubcategories && result.selectedCategory) {
@@ -497,41 +841,91 @@ export class WhatsAppMessageHandler {
               this.businessRepo,
               result.selectedCategory.id,
               language,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
           }
         }
         break;
       }
 
-
       case 'business_info':
-        await this.sendBusinessFullInfo(client, phone, businessId, language);
-        await this.saveUserState(businessId, phone, name, {}, 'business_info', language);
+        await this.sendBusinessFullInfo(
+          client,
+          phone,
+          businessId,
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'business_info',
+          language,
+        );
         break;
 
       case 'order_history':
-        await showOrderHistoryMenu(client, phone, language, businessId, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, name, {}, 'order_history_menu', language);
+        await showOrderHistoryMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'order_history_menu',
+          language,
+        );
         break;
 
       case 'customer_service':
-        const msg = await getBotMessage(this.botMessageRepo, businessId, language, 'customer_service_connected');
-        await client.sendMessage(phone, msg);
+        const msg = await getBotMessage(
+          this.botMessageRepo,
+          businessId,
+          language,
+          'customer_service_connected',
+        );
+
+        await sendManager.sendMessage({
+          phone,
+          text: msg,
+        });
         await this.saveUserState(
           businessId,
           phone,
           name,
           { enteredAt: Date.now() },
           'customer_service_mode',
-          language
+          language,
         );
         break;
 
       default:
         // Default to main menu
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'main_menu',
+          language,
+        );
     }
   }
 
@@ -541,7 +935,7 @@ export class WhatsAppMessageHandler {
   private async shouldUseAIForMessage(
     text: string,
     currentState: string,
-    language: string
+    language: string,
   ): Promise<boolean> {
     const textLower = text.toLowerCase().trim();
 
@@ -553,32 +947,71 @@ export class WhatsAppMessageHandler {
     // Check for natural language queries
     const aiKeywords = [
       // Questions
-      'what', 'how', 'when', 'where', 'why', 'who', 'which',
-      'can you', 'could you', 'would you', 'will you',
-      'tell me', 'explain', 'show me', 'help',
+      'what',
+      'how',
+      'when',
+      'where',
+      'why',
+      'who',
+      'which',
+      'can you',
+      'could you',
+      'would you',
+      'will you',
+      'tell me',
+      'explain',
+      'show me',
+      'help',
 
       // Greetings and small talk
-      'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
-      'how are you', 'how\'s it going', 'what\'s up',
+      'hello',
+      'hi',
+      'hey',
+      'good morning',
+      'good afternoon',
+      'good evening',
+      'how are you',
+      "how's it going",
+      "what's up",
 
       // General inquiries
-      'about', 'information', 'details', 'price', 'cost', 'delivery',
-      'shipping', 'payment', 'order status', 'track', 'return', 'refund',
+      'about',
+      'information',
+      'details',
+      'price',
+      'cost',
+      'delivery',
+      'shipping',
+      'payment',
+      'order status',
+      'track',
+      'return',
+      'refund',
 
       // Complaints/feedback
-      'problem', 'issue', 'error', 'wrong', 'not working', 'complaint',
-      'feedback', 'suggestion', 'improve'
+      'problem',
+      'issue',
+      'error',
+      'wrong',
+      'not working',
+      'complaint',
+      'feedback',
+      'suggestion',
+      'improve',
     ];
 
     // Check if message contains AI keywords
-    const hasAIKeyword = aiKeywords.some(keyword =>
-      textLower.includes(keyword.toLowerCase())
+    const hasAIKeyword = aiKeywords.some((keyword) =>
+      textLower.includes(keyword.toLowerCase()),
     );
 
     // Check if it's a natural language query (not menu selection)
     const isNumberSelection = /^\d+$/.test(textLower);
-    const isMenuOption = textLower === '0' || textLower === 'menu' ||
-      textLower === 'hi' || textLower === 'hello';
+    const isMenuOption =
+      textLower === '0' ||
+      textLower === 'menu' ||
+      textLower === 'hi' ||
+      textLower === 'hello';
 
     // Use AI if:
     // 1. Has AI keywords AND not a menu selection
@@ -588,34 +1021,55 @@ export class WhatsAppMessageHandler {
     const wordCount = textLower.split(/\s+/).length;
     const isComplexSentence = wordCount > 3;
 
-    return (hasAIKeyword && !isNumberSelection && !isMenuOption) ||
+    return (
+      (hasAIKeyword && !isNumberSelection && !isMenuOption) ||
       isQuestion ||
-      isComplexSentence;
+      isComplexSentence
+    );
   }
 
   // ==============================
   // Helper Methods (keep existing)
   // ==============================
-  private async sendLanguageSelection(client: Client, phone: string) {
+  private async sendLanguageSelection(
+    client: any,
+    phone: string,
+    sendManager: any,
+  ) {
     const msg = `🌐 Please select your language / භාෂාව තෝරන්න / மொழியை தேர்ந்தெடுக்கவும்:\n\n1️⃣ English\n2️⃣ සිංහල\n3️⃣ தமிழ்`;
-    await client.sendMessage(phone, msg);
+    await sendManager.sendMessage({
+      phone,
+      text: msg,
+    });
   }
 
   private async restorePreviousState(
-    client: Client,
+    client: any,
     businessId: number,
     phone: string,
     name: string,
     business: Business,
-    prevState: string
+    prevState: string,
+    sendManager: any,
   ) {
-    const userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
-    const stateData = userState?.last_message ? JSON.parse(userState.last_message) : {};
+    const userState = await this.userStateRepo.findOne({
+      where: { phone, business_id: businessId },
+    });
+    const stateData = userState?.last_message
+      ? JSON.parse(userState.last_message)
+      : {};
     const language = userState?.language || 'en';
 
     switch (prevState) {
       case 'main_menu':
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
         break;
 
       // case 'place_order':
@@ -630,7 +1084,8 @@ export class WhatsAppMessageHandler {
           businessId,
           language,
           this.businessRepo,
-          this.botMessageRepo
+          this.botMessageRepo,
+          sendManager
         );
 
         if (result?.nextState) {
@@ -638,9 +1093,11 @@ export class WhatsAppMessageHandler {
             businessId,
             phone,
             name,
-            result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+            result.selectedCategory
+              ? { categoryId: result.selectedCategory.id }
+              : {},
             result.nextState,
-            language
+            language,
           );
 
           if (result.autoShowSubcategories && result.selectedCategory) {
@@ -651,20 +1108,30 @@ export class WhatsAppMessageHandler {
               this.businessRepo,
               result.selectedCategory.id,
               language,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
           }
         }
         return;
       }
 
-
       case 'subcategory_selection':
         if (stateData.categoryId) {
           const categories = business.categories || [];
-          const categoryIndex = categories.findIndex(c => c.id === stateData.categoryId) + 1;
+          const categoryIndex =
+            categories.findIndex((c) => c.id === stateData.categoryId) + 1;
           if (categoryIndex > 0) {
-            await selectSubCategory(client, phone, businessId, this.businessRepo, categoryIndex, language, this.botMessageRepo);
+            await selectSubCategory(
+              client,
+              phone,
+              businessId,
+              this.businessRepo,
+              categoryIndex,
+              language,
+              this.botMessageRepo,
+              sendManager
+            );
           } else {
             const result = await showCategories(
               client,
@@ -672,7 +1139,8 @@ export class WhatsAppMessageHandler {
               businessId,
               language,
               this.businessRepo,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
 
             if (result?.nextState) {
@@ -680,9 +1148,11 @@ export class WhatsAppMessageHandler {
                 businessId,
                 phone,
                 name,
-                result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+                result.selectedCategory
+                  ? { categoryId: result.selectedCategory.id }
+                  : {},
                 result.nextState,
-                language
+                language,
               );
 
               if (result.autoShowSubcategories && result.selectedCategory) {
@@ -693,7 +1163,8 @@ export class WhatsAppMessageHandler {
                   this.businessRepo,
                   result.selectedCategory.id,
                   language,
-                  this.botMessageRepo
+                  this.botMessageRepo,
+                  sendManager
                 );
               }
             }
@@ -705,7 +1176,8 @@ export class WhatsAppMessageHandler {
             businessId,
             language,
             this.businessRepo,
-            this.botMessageRepo
+            this.botMessageRepo,
+            sendManager
           );
 
           if (result?.nextState) {
@@ -713,9 +1185,11 @@ export class WhatsAppMessageHandler {
               businessId,
               phone,
               name,
-              result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+              result.selectedCategory
+                ? { categoryId: result.selectedCategory.id }
+                : {},
               result.nextState,
-              language
+              language,
             );
 
             if (result.autoShowSubcategories && result.selectedCategory) {
@@ -726,7 +1200,8 @@ export class WhatsAppMessageHandler {
                 this.businessRepo,
                 result.selectedCategory.id,
                 language,
-                this.botMessageRepo
+                this.botMessageRepo,
+                sendManager
               );
             }
           }
@@ -753,7 +1228,8 @@ export class WhatsAppMessageHandler {
               businessWithRelations,
               stateData.subCategoryId,
               language,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
           } else {
             const result = await showCategories(
@@ -762,7 +1238,8 @@ export class WhatsAppMessageHandler {
               businessId,
               language,
               this.businessRepo,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
 
             if (result?.nextState) {
@@ -770,9 +1247,11 @@ export class WhatsAppMessageHandler {
                 businessId,
                 phone,
                 name,
-                result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+                result.selectedCategory
+                  ? { categoryId: result.selectedCategory.id }
+                  : {},
                 result.nextState,
-                language
+                language,
               );
 
               if (result.autoShowSubcategories && result.selectedCategory) {
@@ -783,17 +1262,34 @@ export class WhatsAppMessageHandler {
                   this.businessRepo,
                   result.selectedCategory.id,
                   language,
-                  this.botMessageRepo
+                  this.botMessageRepo,
+                  sendManager
                 );
               }
             }
           }
         } else if (stateData.categoryId) {
           const categories = business.categories || [];
-          const categoryIndex = categories.findIndex(c => c.id === stateData.categoryId) + 1;
+          const categoryIndex =
+            categories.findIndex((c) => c.id === stateData.categoryId) + 1;
           if (categoryIndex > 0) {
-            await selectSubCategory(client, phone, businessId, this.businessRepo, categoryIndex, language, this.botMessageRepo);
-            await this.saveUserState(businessId, phone, name, stateData, 'subcategory_selection');
+            await selectSubCategory(
+              client,
+              phone,
+              businessId,
+              this.businessRepo,
+              categoryIndex,
+              language,
+              this.botMessageRepo,
+              sendManager
+            );
+            await this.saveUserState(
+              businessId,
+              phone,
+              name,
+              stateData,
+              'subcategory_selection',
+            );
             return;
           }
         } else {
@@ -803,7 +1299,8 @@ export class WhatsAppMessageHandler {
             businessId,
             language,
             this.businessRepo,
-            this.botMessageRepo
+            this.botMessageRepo,
+            sendManager
           );
 
           if (result?.nextState) {
@@ -811,9 +1308,11 @@ export class WhatsAppMessageHandler {
               businessId,
               phone,
               name,
-              result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+              result.selectedCategory
+                ? { categoryId: result.selectedCategory.id }
+                : {},
               result.nextState,
-              language
+              language,
             );
 
             if (result.autoShowSubcategories && result.selectedCategory) {
@@ -824,7 +1323,8 @@ export class WhatsAppMessageHandler {
                 this.businessRepo,
                 result.selectedCategory.id,
                 language,
-                this.botMessageRepo
+                this.botMessageRepo,
+                sendManager
               );
             }
           }
@@ -844,22 +1344,68 @@ export class WhatsAppMessageHandler {
       //   if (stateData.variantId) {
       //     await sendVariantsList(client, phone, business, stateData.productId, businessId, stateData, this.saveUserState.bind(this), this.productRepo, this.botMessageRepo, language);
       //   }
-      //   break; 
+      //   break;
 
       case 'confirm_order':
-        await confirmOrder(client, phone, '', stateData, businessId, language, this.saveUserState.bind(this), this.businessPaymentOptionRepo, this.botMessageRepo);
+        await confirmOrder(
+          client,
+          phone,
+          '',
+          stateData,
+          businessId,
+          language,
+          this.saveUserState.bind(this),
+          this.businessPaymentOptionRepo,
+          this.botMessageRepo,
+          sendManager
+        );
         break;
 
       case 'select_payment_method':
-        await handlePaymentMethod(client, phone, '', stateData, businessId, language, this.saveUserState.bind(this), this.orderRepo, this.orderItemRepo, this.variantRepo, this.businessPaymentOptionRepo, this.deliveryFeeRepo, this.botMessageRepo, this.quickStatsGateway);
+        await handlePaymentMethod(
+          client,
+          phone,
+          '',
+          stateData,
+          businessId,
+          language,
+          this.saveUserState.bind(this),
+          this.orderRepo,
+          this.orderItemRepo,
+          this.variantRepo,
+          this.businessPaymentOptionRepo,
+          this.deliveryFeeRepo,
+          this.botMessageRepo,
+          this.quickStatsGateway,
+          sendManager
+        );
         break;
 
       case 'upload_payment_receipt':
-        await handlePaymentReceipt(client, null, phone, stateData, businessId, language, this.saveUserState.bind(this), this.orderRepo, this.botMessageRepo, this.quickStatsGateway);
+        await handlePaymentReceipt(
+          client,
+          null,
+          phone,
+          stateData,
+          businessId,
+          language,
+          this.saveUserState.bind(this),
+          this.orderRepo,
+          this.botMessageRepo,
+          this.quickStatsGateway,
+          sendManager
+        );
         break;
 
       case 'order_history_menu':
-        await showOrderHistoryMenu(client, phone, language, businessId, this.botMessageRepo);
+        await showOrderHistoryMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
         break;
 
       case 'pending_orders':
@@ -869,21 +1415,64 @@ export class WhatsAppMessageHandler {
       case 'delivered_orders':
       case 'canceled_orders':
       case 'refunded_orders':
-        await showOrderHistoryMenu(client, phone, language, businessId, this.botMessageRepo);
+        await showOrderHistoryMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
         break;
 
       case 'select_receipt_option':
-        await showUploadReceiptMenu(client, phone, language, businessId, this.botMessageRepo);
+        await showUploadReceiptMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
         break;
 
       case 'select_order_for_receipt_upload':
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'main_menu',
+          language,
+        );
         break;
 
       default:
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
-        await this.saveUserState(businessId, phone, name, {}, 'main_menu', language, 'main_menu');
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'main_menu',
+          language,
+          'main_menu',
+        );
     }
 
     if (prevState !== 'select_order_for_receipt_upload') {
@@ -892,17 +1481,20 @@ export class WhatsAppMessageHandler {
   }
 
   private async sendMainMenu(
-    client: Client,
+    client: any,
     phone: string,
     businessId: number,
     businessName: string,
-    language: string
+    language: string,
+    sendManager: any,
   ) {
     const msgRow = await this.botMessageRepo.findOne({
       where: { business_id: businessId, language, key_name: 'main_menu' },
     });
 
-    let baseMessage = msgRow?.text || `👋 Hello! I am ${businessName} bot 🤖
+    let baseMessage =
+      msgRow?.text ||
+      `👋 Hello! I am ${businessName} bot 🤖
 
 1️⃣ Business Details  
 2️⃣ My Orders  
@@ -918,28 +1510,51 @@ export class WhatsAppMessageHandler {
       baseMessage,
       businessName,
       language as any,
-      { maxTokens: 500, temperature: 0.5 }
+      { maxTokens: 500, temperature: 0.5 },
     );
 
-    await client.sendMessage(phone, enhancedMessage);
+    await sendManager.sendMessage({
+      phone,
+      text: enhancedMessage,
+    });
   }
 
   private async handleMainMenu(
-    client: Client,
+    client: any,
     phone: string,
     name: string,
     businessId: number,
     text: string,
-    language: string
+    language: string,
+    sendManager: any,
   ) {
     switch (text) {
       case '1':
-        await this.sendBusinessFullInfo(client, phone, businessId, language);
+        await this.sendBusinessFullInfo(
+          client,
+          phone,
+          businessId,
+          language,
+          sendManager,
+        );
         await this.saveUserState(businessId, phone, name, {}, 'business_info');
         break;
       case '2':
-        await showOrderHistoryMenu(client, phone, language, businessId, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, name, {}, 'order_history_menu');
+        await showOrderHistoryMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'order_history_menu',
+        );
         break;
       // case '3':
       //   await showCategories(client, phone, businessId, language, this.businessRepo, this.botMessageRepo);
@@ -951,7 +1566,8 @@ export class WhatsAppMessageHandler {
           businessId,
           language,
           this.businessRepo,
-          this.botMessageRepo
+          this.botMessageRepo,
+          sendManager
         );
 
         if (result?.nextState) {
@@ -959,9 +1575,11 @@ export class WhatsAppMessageHandler {
             businessId,
             phone,
             name,
-            result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
+            result.selectedCategory
+              ? { categoryId: result.selectedCategory.id }
+              : {},
             result.nextState,
-            language
+            language,
           );
 
           if (result.autoShowSubcategories && result.selectedCategory) {
@@ -972,46 +1590,97 @@ export class WhatsAppMessageHandler {
               this.businessRepo,
               result.selectedCategory.id,
               language,
-              this.botMessageRepo
+              this.botMessageRepo,
+              sendManager
             );
           }
         }
         break;
       }
       case '4':
-        await this.sendLanguageSelection(client, phone);
-        await this.saveUserState(businessId, phone, name, {}, 'language_selection');
+        await this.sendLanguageSelection(client, phone, sendManager);
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'language_selection',
+        );
         break;
       case '5':
-        await showUploadReceiptMenu(client, phone, language, businessId, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, name, {}, 'select_receipt_option');
+        await showUploadReceiptMenu(
+          client,
+          phone,
+          language,
+          businessId,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          {},
+          'select_receipt_option',
+        );
         return;
       case '6':
-        const msg = await getBotMessage(this.botMessageRepo, businessId, language, 'customer_service_connected');
-        await client.sendMessage(phone, msg);
+        const msg = await getBotMessage(
+          this.botMessageRepo,
+          businessId,
+          language,
+          'customer_service_connected',
+        );
+        await sendManager.sendMessage({
+          phone,
+          text: msg,
+        });
         await this.saveUserState(
           businessId,
           phone,
           name,
           { enteredAt: Date.now() },
           'customer_service_mode',
-          language
+          language,
         );
         break;
       default:
-        const errorMsg = await getBotMessage(this.botMessageRepo, businessId, language, 'invalid_option_1_2_3');
-        await client.sendMessage(phone, errorMsg);
+        const errorMsg = await getBotMessage(
+          this.botMessageRepo,
+          businessId,
+          language,
+          'invalid_option_1_2_3',
+        );
+        await sendManager.sendMessage({
+          phone,
+          text: errorMsg,
+        });
     }
   }
 
-  private async sendBusinessFullInfo(client: Client, phone: string, businessId: number, language: string) {
+  private async sendBusinessFullInfo(
+    client: any,
+    phone: string,
+    businessId: number,
+    language: string,
+    sendManager: any,
+  ) {
     const business = await this.businessRepo.findOne({
       where: { id: businessId },
-      relations: ['owner', 'categories', 'customers', 'subscriptions', 'orders'],
+      relations: [
+        'owner',
+        'categories',
+        'customers',
+        'subscriptions',
+        'orders',
+      ],
     });
 
     if (!business) {
-      await client.sendMessage(phone, '❌ Business info not found.');
+      await sendManager.sendMessage({
+        phone,
+        text: '❌ Business info not found.',
+      });
       return;
     }
 
@@ -1027,62 +1696,174 @@ export class WhatsAppMessageHandler {
       business.name,
       businessDetails,
       language as 'en' | 'si' | 'ta',
-      { maxTokens: 600, temperature: 0.4 }
+      { maxTokens: 600, temperature: 0.4 },
     );
 
-    await client.sendMessage(phone, enhancedMessage);
+    await sendManager.sendMessage({
+      phone,
+      text: enhancedMessage,
+    });
   }
 
   private async handleOrderHistoryMenu(
-    client: Client,
+    client: any,
     phone: string,
     name: string,
     businessId: number,
     text: string,
-    language: string
+    language: string,
+    sendManager: any,
   ) {
     switch (text) {
       case '1':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'pending', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'pending',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '2':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'confirmed', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'confirmed',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '3':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'paid', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'paid',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '4':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'shipped', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'shipped',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '5':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'delivered', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'delivered',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '6':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'canceled', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'canceled',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '7':
-        await import('./messages-flows/my-orders/list-orders.flow').then(m =>
-          m.sendOrdersByStatus(client, phone, businessId, this.orderRepo, phone, 'refunded', this.saveUserState.bind(this), name, language, this.orderCancellationRepo, this.botMessageRepo)
+        await import('./messages-flows/my-orders/list-orders.flow').then((m) =>
+          m.sendOrdersByStatus(
+            client,
+            phone,
+            businessId,
+            this.orderRepo,
+            phone,
+            'refunded',
+            this.saveUserState.bind(this),
+            name,
+            language,
+            this.orderCancellationRepo,
+            this.botMessageRepo,
+            sendManager
+          ),
         );
         break;
       case '0':
-        await this.sendMainMenu(client, phone, businessId, 'Business', language);
-        await this.saveUserState(businessId, phone, '', {}, 'main_menu', language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          'Business',
+          language,
+          sendManager,
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          {},
+          'main_menu',
+          language,
+        );
         return;
       default:
-        await client.sendMessage(phone, '❌ Invalid option. Enter a number from 0 to 7.');
+        await sendManager.sendMessage({
+          phone,
+          text: '❌ Invalid option. Enter a number from 0 to 7.',
+        });
     }
   }
 
@@ -1090,12 +1871,13 @@ export class WhatsAppMessageHandler {
   // Fixed handlePlaceOrder method
   // ==============================
   private async handlePlaceOrder(
-    client: Client,
+    client: any,
     phone: string,
     businessId: number,
     text: string,
     state: string,
-    language: string
+    language: string,
+    sendManager: any,
   ) {
     const business = await this.businessRepo.findOne({
       where: { id: businessId },
@@ -1117,10 +1899,12 @@ export class WhatsAppMessageHandler {
     if (!business) return;
 
     const userState = await this.userStateRepo.findOne({
-      where: { phone, business_id: businessId }
+      where: { phone, business_id: businessId },
     });
 
-    let stateData = userState?.last_message ? JSON.parse(userState.last_message) : {};
+    let stateData = userState?.last_message
+      ? JSON.parse(userState.last_message)
+      : {};
 
     // Handle back navigation (0)
     // if (text === '0') {
@@ -1133,64 +1917,171 @@ export class WhatsAppMessageHandler {
       // case 'place_order':
       case 'category_selection':
         stateData.categoryId = parseInt(text);
-        await selectSubCategory(client, phone, businessId, this.businessRepo, stateData.categoryId, language, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, '', stateData, 'subcategory_selection');
+        await selectSubCategory(
+          client,
+          phone,
+          businessId,
+          this.businessRepo,
+          stateData.categoryId,
+          language,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'subcategory_selection',
+        );
         break;
 
-
       case 'subcategory_selection':
-        const category = business.categories.find(c => c.id === stateData.categoryId);
+        const category = business.categories.find(
+          (c) => c.id === stateData.categoryId,
+        );
         const subcategories = category?.subcategories || [];
         const selectedSub = subcategories[parseInt(text) - 1];
         if (!selectedSub) {
-          await client.sendMessage(phone, "❌ Invalid selection. Enter a valid number.");
+          await sendManager.sendMessage({
+            phone,
+            text: '❌ Invalid selection. Enter a valid number.',
+          });
           return;
         }
         stateData.subCategoryId = selectedSub.id;
-        await selectSubSubCategory(client, phone, business, stateData.subCategoryId, language, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, '', stateData, 'subsub_category_selection');
+        await selectSubSubCategory(
+          client,
+          phone,
+          business,
+          stateData.subCategoryId,
+          language,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'subsub_category_selection',
+        );
         break;
 
       case 'subsub_category_selection':
         const subcategory = business.categories
-          .find(c => c.id === stateData.categoryId)
-          ?.subcategories.find(sc => sc.id === stateData.subCategoryId);
+          .find((c) => c.id === stateData.categoryId)
+          ?.subcategories.find((sc) => sc.id === stateData.subCategoryId);
         const subSubcategories = subcategory?.subsubcategories || [];
-        const directProducts = (subcategory?.products || []).filter(p => !p.subsubCategory && p.is_active);
+        const directProducts = (subcategory?.products || []).filter(
+          (p) => !p.subsubCategory && p.is_active,
+        );
         const choice = text.trim().toUpperCase();
 
         if (choice === 'A' && directProducts.length > 0) {
-          await sendProductsList(client, phone, business, 0, subcategory!.id, language, this.botMessageRepo);
+          await sendProductsList(
+            client,
+            phone,
+            business,
+            0,
+            subcategory!.id,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
           stateData.subSubId = 0;
-          await this.saveUserState(businessId, phone, '', stateData, 'product_selection');
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'product_selection',
+          );
           return;
         }
 
         const selectedSubSub = subSubcategories[parseInt(choice) - 1];
         if (!selectedSubSub) {
-          await client.sendMessage(phone, "❌ Invalid selection. Type again.");
+          await sendManager.sendMessage({
+            phone,
+            text: '❌ Invalid selection. Type again.',
+          });
           return;
         }
-        const activeProducts = (selectedSubSub.products || []).filter(p => p.is_active);
+        const activeProducts = (selectedSubSub.products || []).filter(
+          (p) => p.is_active,
+        );
         if (!activeProducts.length) {
-          await client.sendMessage(phone, "No products here. Select another.\n👉 To go back to the menu, type (Menu)");
+          await sendManager.sendMessage({
+            phone,
+            text: 'No products here. Select another.\n👉 To go back to the menu, type (Menu)',
+          });
           return;
         }
         stateData.subSubId = selectedSubSub.id;
-        await sendProductsList(client, phone, business, stateData.subSubId, stateData.subCategoryId, language, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, '', stateData, 'product_selection');
+        await sendProductsList(
+          client,
+          phone,
+          business,
+          stateData.subSubId,
+          stateData.subCategoryId,
+          language,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'product_selection',
+        );
         break;
 
       case 'product_selection':
-        await handleProductSelection(client, phone, business, stateData, parseInt(text), this.saveUserState.bind(this), this.productRepo, this.botMessageRepo, language);
+        await handleProductSelection(
+          client,
+          phone,
+          business,
+          stateData,
+          parseInt(text),
+          this.saveUserState.bind(this),
+          this.productRepo,
+          this.botMessageRepo,
+          language,
+          sendManager
+        );
         break;
 
       case 'variant_selection':
-        await handleVariantSelection(client, phone, business, stateData, parseInt(text), businessId, this.saveUserState.bind(this), this.botMessageRepo, language);
+        await handleVariantSelection(
+          client,
+          phone,
+          business,
+          stateData,
+          parseInt(text),
+          businessId,
+          this.saveUserState.bind(this),
+          this.botMessageRepo,
+          language,
+          sendManager
+        );
         break;
 
       case 'quantity_input':
-        await handleQuantityInput(client, phone, business, stateData, text, businessId, this.saveUserState.bind(this), this.productRepo, this.botMessageRepo, language);
+        await handleQuantityInput(
+          client,
+          phone,
+          business,
+          stateData,
+          text,
+          businessId,
+          this.saveUserState.bind(this),
+          this.productRepo,
+          this.botMessageRepo,
+          language,
+          sendManager
+        );
         break;
 
       default:
@@ -1202,21 +2093,28 @@ export class WhatsAppMessageHandler {
   // Fixed back navigation handler
   // ==============================
   private async handleBackNavigation(
-    client: Client,
+    client: any,
     phone: string,
     businessId: number,
     business: any,
     currentState: string,
     stateData: any,
-    language: string
+    language: string,
+    sendManager: any,
   ) {
-
     switch (currentState) {
       case 'place_order':
       case 'category_selection':
         // Clear all state data and go to main menu
         await this.saveUserState(businessId, phone, '', {}, 'main_menu');
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
         break;
 
       case 'subcategory_selection':
@@ -1227,8 +2125,22 @@ export class WhatsAppMessageHandler {
         delete stateData.productId;
         delete stateData.variantId;
 
-        await showCategories(client, phone, businessId, language, this.businessRepo, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, '', stateData, 'category_selection');
+        await showCategories(
+          client,
+          phone,
+          businessId,
+          language,
+          this.businessRepo,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'category_selection',
+        );
         break;
 
       case 'subsub_category_selection':
@@ -1238,11 +2150,40 @@ export class WhatsAppMessageHandler {
         delete stateData.variantId;
 
         if (stateData.categoryId) {
-          await selectSubCategory(client, phone, businessId, this.businessRepo, stateData.categoryId, language, this.botMessageRepo);
-          await this.saveUserState(businessId, phone, '', stateData, 'subcategory_selection');
+          await selectSubCategory(
+            client,
+            phone,
+            businessId,
+            this.businessRepo,
+            stateData.categoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'subcategory_selection',
+          );
         } else {
-          await showCategories(client, phone, businessId, language, this.businessRepo, this.botMessageRepo);
-          await this.saveUserState(businessId, phone, '', stateData, 'category_selection');
+          await showCategories(
+            client,
+            phone,
+            businessId,
+            language,
+            this.businessRepo,
+            this.botMessageRepo,
+            sendManager
+          );
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'category_selection',
+          );
         }
         break;
 
@@ -1253,14 +2194,57 @@ export class WhatsAppMessageHandler {
 
         if (stateData.subSubId === 0) {
           // Direct products in subcategory
-          await selectSubSubCategory(client, phone, business, stateData.subCategoryId, language, this.botMessageRepo);
-          await this.saveUserState(businessId, phone, '', stateData, 'subsub_category_selection');
+          await selectSubSubCategory(
+            client,
+            phone,
+            business,
+            stateData.subCategoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'subsub_category_selection',
+          );
         } else if (stateData.subSubId) {
-          await selectSubSubCategory(client, phone, business, stateData.subCategoryId, language, this.botMessageRepo);
-          await this.saveUserState(businessId, phone, '', stateData, 'subsub_category_selection');
+          await selectSubSubCategory(
+            client,
+            phone,
+            business,
+            stateData.subCategoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'subsub_category_selection',
+          );
         } else {
-          await selectSubCategory(client, phone, businessId, this.businessRepo, stateData.categoryId, language, this.botMessageRepo);
-          await this.saveUserState(businessId, phone, '', stateData, 'subcategory_selection');
+          await selectSubCategory(
+            client,
+            phone,
+            businessId,
+            this.businessRepo,
+            stateData.categoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
+          await this.saveUserState(
+            businessId,
+            phone,
+            '',
+            stateData,
+            'subcategory_selection',
+          );
         }
         break;
 
@@ -1269,12 +2253,36 @@ export class WhatsAppMessageHandler {
         delete stateData.variantId;
 
         if (stateData.subSubId === 0) {
-          await sendProductsList(client, phone, business, 0, stateData.subCategoryId, language, this.botMessageRepo);
+          await sendProductsList(
+            client,
+            phone,
+            business,
+            0,
+            stateData.subCategoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
         } else {
-          await sendProductsList(client, phone, business, stateData.subSubId, stateData.subCategoryId, language, this.botMessageRepo);
+          await sendProductsList(
+            client,
+            phone,
+            business,
+            stateData.subSubId,
+            stateData.subCategoryId,
+            language,
+            this.botMessageRepo,
+            sendManager
+          );
         }
 
-        await this.saveUserState(businessId, phone, '', stateData, 'product_selection');
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'product_selection',
+        );
         break;
 
       case 'quantity_input':
@@ -1282,14 +2290,39 @@ export class WhatsAppMessageHandler {
         delete stateData.quantity;
         delete stateData.unit;
 
-        await sendVariantsList(client, phone, business, stateData.productId, business.id, stateData, this.saveUserState.bind(this), this.productRepo, this.botMessageRepo, language);
-        await this.saveUserState(businessId, phone, '', stateData, 'variant_selection');
+        await sendVariantsList(
+          client,
+          phone,
+          business,
+          stateData.productId,
+          business.id,
+          stateData,
+          this.saveUserState.bind(this),
+          this.productRepo,
+          this.botMessageRepo,
+          language,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          '',
+          stateData,
+          'variant_selection',
+        );
         break;
 
       default:
         // Default fallback to main menu
         await this.saveUserState(businessId, phone, '', {}, 'main_menu');
-        await this.sendMainMenu(client, phone, businessId, business.name, language);
+        await this.sendMainMenu(
+          client,
+          phone,
+          businessId,
+          business.name,
+          language,
+          sendManager,
+        );
     }
   }
 
@@ -1300,11 +2333,17 @@ export class WhatsAppMessageHandler {
     lastMessage: any,
     state: string,
     language?: string,
-    previousState?: string
+    previousState?: string,
   ) {
-    let userState = await this.userStateRepo.findOne({ where: { phone, business_id: businessId } });
+    let userState = await this.userStateRepo.findOne({
+      where: { phone, business_id: businessId },
+    });
     if (!userState) {
-      userState = this.userStateRepo.create({ business_id: businessId, phone, name });
+      userState = this.userStateRepo.create({
+        business_id: businessId,
+        phone,
+        name,
+      });
     }
 
     // Store previous state only if we're changing to a new state
@@ -1320,63 +2359,82 @@ export class WhatsAppMessageHandler {
   }
 
   private async handleSubCategorySelectionBack(
-    client: Client,
+    client: any,
     businessId: number,
     phone: string,
     name: string,
     business: Business,
     stateData: any,
-    language: string
+    language: string,
+    sendManager: any
   ) {
-
     delete stateData.subSubId;
     delete stateData.productId;
     delete stateData.variantId;
 
     const categories = business.categories || [];
-    const category = categories.find(c => c.id === stateData.categoryId);
+    const category = categories.find((c) => c.id === stateData.categoryId);
 
     if (category) {
       const categoryIndex = categories.indexOf(category) + 1;
       if (categoryIndex > 0) {
-        await selectSubCategory(client, phone, businessId, this.businessRepo, categoryIndex, language, this.botMessageRepo);
-        await this.saveUserState(businessId, phone, name, stateData, 'subcategory_selection', language);
+        await selectSubCategory(
+          client,
+          phone,
+          businessId,
+          this.businessRepo,
+          categoryIndex,
+          language,
+          this.botMessageRepo,
+          sendManager
+        );
+        await this.saveUserState(
+          businessId,
+          phone,
+          name,
+          stateData,
+          'subcategory_selection',
+          language,
+        );
         return;
       }
     }
 
     const result = await showCategories(
+      client,
+      phone,
+      businessId,
+      language,
+      this.businessRepo,
+      this.botMessageRepo,
+      sendManager
+    );
+
+    if (result?.nextState) {
+      await this.saveUserState(
+        businessId,
+        phone,
+        name,
+        result.selectedCategory
+          ? { categoryId: result.selectedCategory.id }
+          : {},
+        result.nextState,
+        language,
+      );
+
+      if (result.autoShowSubcategories && result.selectedCategory) {
+        await selectSubCategory(
           client,
           phone,
           businessId,
-          language,
           this.businessRepo,
-          this.botMessageRepo
+          result.selectedCategory.id,
+          language,
+          this.botMessageRepo,
+          sendManager
         );
-
-        if (result?.nextState) {
-          await this.saveUserState(
-            businessId,
-            phone,
-            name,
-            result.selectedCategory ? { categoryId: result.selectedCategory.id } : {},
-            result.nextState,
-            language
-          );
-
-          if (result.autoShowSubcategories && result.selectedCategory) {
-            await selectSubCategory(
-              client,
-              phone,
-              businessId,
-              this.businessRepo,
-              result.selectedCategory.id,
-              language,
-              this.botMessageRepo
-            );
-          }
-        }
-  
+      }
+    }
   }
 
   // ==============================
@@ -1388,5 +2446,24 @@ export class WhatsAppMessageHandler {
 
   async getConversationHistory(phone: string) {
     return this.conversationHistory.get(phone) || [];
+  }
+}
+
+// Show typing status for 3 seconds
+async function showTyping(client: any, jid: string, duration = 3000) {
+  try {
+    // Subscribe to presence updates (optional, ensures WhatsApp knows you're active)
+    await client.presenceSubscribe(jid);
+
+    // Send typing presence
+    await client.sendPresenceUpdate('composing', jid);
+
+    // Wait for a bit to simulate typing
+    await new Promise((resolve) => setTimeout(resolve, duration));
+
+    // Stop typing (available)
+    await client.sendPresenceUpdate('available', jid);
+  } catch (err) {
+    console.error('❌ Failed to send typing status', err);
   }
 }

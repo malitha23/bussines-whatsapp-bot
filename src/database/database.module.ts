@@ -31,6 +31,7 @@ import { Manager } from './entities/managers.entity';
 import { Staff } from './entities/staff.entity';
 import { TeamActivity } from './entities/team-activity.entity';
 import { OrderTracking } from './entities/order-tracking.entity';
+import { BusinessSettings } from './entities/business-settings.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -71,7 +72,8 @@ import { OrderTracking } from './entities/order-tracking.entity';
         Manager,
         Staff,
         TeamActivity,
-        OrderTracking
+        OrderTracking,
+        BusinessSettings
       ],
       synchronize: false, // false in production
       logging: true,

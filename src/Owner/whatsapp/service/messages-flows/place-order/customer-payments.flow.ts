@@ -1,46 +1,65 @@
-import { Client } from "whatsapp-web.js";
-import { Repository } from "typeorm";
-import { ProductVariant } from "../../../../../database/entities/product-variant.entity";
-import { BusinessPaymentOption } from "../../../../../database/entities/business-payment-options.entity";
-import { Order } from "../../../../../database/entities/order.entity";
-import { OrderItem } from "../../../../../database/entities/order-item.entity";
-import { BotMessage } from "../../../../../database/entities/bot-messages.entity";
-import { BusinessDeliveryFee } from "../../../../../database/entities/business-delivery-fee.entity";
+import { Repository } from 'typeorm';
+import { ProductVariant } from '../../../../../database/entities/product-variant.entity';
+import { BusinessPaymentOption } from '../../../../../database/entities/business-payment-options.entity';
+import { Order } from '../../../../../database/entities/order.entity';
+import { OrderItem } from '../../../../../database/entities/order-item.entity';
+import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
+import { BusinessDeliveryFee } from '../../../../../database/entities/business-delivery-fee.entity';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import fs from 'fs';
+import path from 'path';
 
 // Helper functions for unit conversion
 function convertToBaseUnit(quantity: number, unit: string) {
   switch (unit.toLowerCase()) {
-    case "kg": return quantity * 1000;
-    case "g": return quantity;
-    case "l": return quantity * 1000;
-    case "ml": return quantity;
-    case "pcs": return quantity;
-    default: return quantity;
+    case 'kg':
+      return quantity * 1000;
+    case 'g':
+      return quantity;
+    case 'l':
+      return quantity * 1000;
+    case 'ml':
+      return quantity;
+    case 'pcs':
+      return quantity;
+    default:
+      return quantity;
   }
 }
 
 function convertFromBaseUnit(quantityBase: number, unit: string) {
   switch (unit.toLowerCase()) {
-    case "kg": return quantityBase / 1000;
-    case "g": return quantityBase;
-    case "l": return quantityBase / 1000;
-    case "ml": return quantityBase;
-    case "pcs": return quantityBase;
-    default: return quantityBase;
+    case 'kg':
+      return quantityBase / 1000;
+    case 'g':
+      return quantityBase;
+    case 'l':
+      return quantityBase / 1000;
+    case 'ml':
+      return quantityBase;
+    case 'pcs':
+      return quantityBase;
+    default:
+      return quantityBase;
   }
 }
 
 // Updated getBotMessage usage
-async function getBotText(botMessageRepo: Repository<BotMessage>, businessId: number, language: string, key_name: string) {
+async function getBotText(
+  botMessageRepo: Repository<BotMessage>,
+  businessId: number,
+  language: string,
+  key_name: string,
+) {
   const msg = await botMessageRepo.findOne({
     where: { business_id: businessId, language, key_name },
   });
-  return msg ? msg.text : "⚠ Message missing";
+  return msg ? msg.text : '⚠ Message missing';
 }
 
 // Handle payment method selection
 export async function handlePaymentMethod(
-  client: Client,
+  client: any,
   phone: string,
   text: string,
   stateData: any,
@@ -53,33 +72,62 @@ export async function handlePaymentMethod(
   businessPaymentOptionRepo: Repository<BusinessPaymentOption>,
   deliveryFeeRepo: Repository<BusinessDeliveryFee>,
   botMessageRepo: Repository<BotMessage>,
-  quickStatsGateway: any
+  quickStatsGateway: any,
+  sendManager: any,
 ) {
   const choice = text.trim();
 
   const options = await businessPaymentOptionRepo.find({
     where: { business: { id: businessId }, enabled: 1 },
-    order: { id: "ASC" },
+    order: { id: 'ASC' },
   });
 
   if (!options.length) {
-    await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_no_options"));
+    await sendManager.sendMessage({
+      phone,
+      text: await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_no_options',
+      ),
+    });
     return;
   }
 
   const optionIndex = parseInt(choice) - 1;
   if (isNaN(optionIndex) || !options[optionIndex]) {
-    await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_invalid_option"));
+    await sendManager.sendMessage({
+      phone,
+      text: await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_invalid_option',
+      ),
+    });
     return;
   }
 
   const selectedOption = options[optionIndex];
   stateData.paymentOption = selectedOption.key_name;
-  stateData.payment_status = selectedOption.key_name.toLowerCase() === "card" ? "paid" : "pending";
+  stateData.payment_status =
+    selectedOption.key_name.toLowerCase() === 'card' ? 'paid' : 'pending';
 
-  const variant = await variantRepo.findOne({ where: { id: stateData.variantId }, relations: ["product"] });
+  const variant = await variantRepo.findOne({
+    where: { id: stateData.variantId },
+    relations: ['product'],
+  });
   if (!variant) {
-    await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_invalid_option"));
+    await sendManager.sendMessage({
+      phone,
+      text: await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_invalid_option',
+      ),
+    });
     return;
   }
 
@@ -89,17 +137,17 @@ export async function handlePaymentMethod(
   const pricePerUnit = variant.price;
   const totalPrice = pricePerUnit * quantityInVariantUnit;
 
-  let unitType: "weight" | "volume" | "count" = "count";
+  let unitType: 'weight' | 'volume' | 'count' = 'count';
   const unitLower = variant.unit.toLowerCase();
-  if (unitLower === "kg" || unitLower === "g") unitType = "weight";
-  else if (unitLower === "l" || unitLower === "ml") unitType = "volume";
+  if (unitLower === 'kg' || unitLower === 'g') unitType = 'weight';
+  else if (unitLower === 'l' || unitLower === 'ml') unitType = 'volume';
 
   const deliveryFeeRecord = await deliveryFeeRepo
-    .createQueryBuilder("fee")
-    .where("fee.businessId = :businessId", { businessId })
-    .andWhere("fee.unit_type = :unitType", { unitType })
-    .andWhere("fee.min_value <= :qty", { qty: quantityInVariantUnit })
-    .andWhere("fee.max_value >= :qty", { qty: quantityInVariantUnit })
+    .createQueryBuilder('fee')
+    .where('fee.businessId = :businessId', { businessId })
+    .andWhere('fee.unit_type = :unitType', { unitType })
+    .andWhere('fee.min_value <= :qty', { qty: quantityInVariantUnit })
+    .andWhere('fee.max_value >= :qty', { qty: quantityInVariantUnit })
     .getOne();
 
   const deliveryFee = deliveryFeeRecord ? Number(deliveryFeeRecord.fee) : 0;
@@ -112,8 +160,8 @@ export async function handlePaymentMethod(
     total_amount: finalTotal,
     delivery_fee: deliveryFee,
     payment_status: stateData.payment_status,
-    delivery_status: "pending",
-    status: "pending",
+    delivery_status: 'pending',
+    status: 'pending',
     payment_method: stateData.paymentOption,
   });
   const savedOrder = await orderRepo.save(order);
@@ -127,8 +175,13 @@ export async function handlePaymentMethod(
   });
   await itemRepo.save(orderItem);
 
-  if (stateData.payment_status === "paid") {
-    await variantRepo.createQueryBuilder().update().set({ stock: () => `stock - ${quantityInVariantUnit}` }).where("id = :id", { id: variant.id }).execute();
+  if (stateData.payment_status === 'paid') {
+    await variantRepo
+      .createQueryBuilder()
+      .update()
+      .set({ stock: () => `stock - ${quantityInVariantUnit}` })
+      .where('id = :id', { id: variant.id })
+      .execute();
   }
 
   const displayQty = convertFromBaseUnit(userQtyBase, variant.unit);
@@ -144,25 +197,51 @@ export async function handlePaymentMethod(
 • Total: Rs. ${finalTotal.toFixed(2)}
 `;
 
-  if (stateData.payment_status === "paid") {
-    message = (await getBotText(botMessageRepo, businessId, language, "customer_payment_paid")) + "\n\n" + message;
-    await saveState(businessId, phone, "", stateData, "post_payment");
-  } else if (selectedOption.key_name.toLowerCase() === "cod") {
-    message = (await getBotText(botMessageRepo, businessId, language, "customer_payment_cod")) + "\n\n" + message;
-    await saveState(businessId, phone, "", stateData, "post_payment");
+  if (stateData.payment_status === 'paid') {
+    message =
+      (await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_paid',
+      )) +
+      '\n\n' +
+      message;
+    await saveState(businessId, phone, '', stateData, 'post_payment');
+  } else if (selectedOption.key_name.toLowerCase() === 'cod') {
+    message =
+      (await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_cod',
+      )) +
+      '\n\n' +
+      message;
+    await saveState(businessId, phone, '', stateData, 'post_payment');
   } else {
-    message = (await getBotText(botMessageRepo, businessId, language, "customer_payment_upload_receipt")) + "\n\n" + message;
+    message =
+      (await getBotText(
+        botMessageRepo,
+        businessId,
+        language,
+        'customer_payment_upload_receipt',
+      )) +
+      '\n\n' +
+      message;
     stateData.orderId = savedOrder.id;
-    await saveState(businessId, phone, "", stateData, "upload_payment_receipt");
+    await saveState(businessId, phone, '', stateData, 'upload_payment_receipt');
   }
   await quickStatsGateway.broadcastStats(businessId);
-  await client.sendMessage(phone.includes("@c.us") ? phone : `${phone}@c.us`, message);
+  await sendManager.sendMessage({
+    phone,
+    text: message,
+  });
 }
 
-// Handle payment receipt
 export async function handlePaymentReceipt(
-  client: Client,
-  message: any,
+  client: any,
+  message: any, // Full WAMessage
   phone: string,
   stateData: any,
   businessId: number,
@@ -170,37 +249,95 @@ export async function handlePaymentReceipt(
   saveState: Function,
   orderRepo: Repository<Order>,
   botMessageRepo: Repository<BotMessage>,
-  quickStatsGateway: any
+  quickStatsGateway: any,
+  sendManager: any,
 ) {
-  if (!message?.hasMedia) {
-    await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_receipt_missing"));
+  // Get the correct message object
+  const mediaContent = message?.message?.imageMessage
+    ? message // Use the full message if image is inside .message
+    : message?.imageMessage
+      ? { message: { imageMessage: message.imageMessage } } // Reconstruct the full message structure
+      : null;
+
+  if (!mediaContent) {
+    const missingMsg = await getBotText(
+      botMessageRepo,
+      businessId,
+      language,
+      'customer_payment_receipt_missing',
+    );
+    await sendManager.sendMessage({ phone, text: missingMsg });
     return;
   }
 
-  const media = await message.downloadMedia();
-  const customerId = stateData.customer?.id || "unknown_customer";
-  const orderId = stateData.orderId || "unknown_order";
-  const receiptDir = `uploads/business_${businessId}/payments/${customerId}/${orderId}`;
-  require("fs").mkdirSync(receiptDir, { recursive: true });
+  try {
+    // Pass the reconstructed/full message object to downloadMediaMessage
+    const mediaBuffer = await downloadMediaMessage(mediaContent, 'buffer', {});
 
-  const fileName = `${Date.now()}_${phone}.jpg`;
-  const filePath = `${receiptDir}/${fileName}`;
-  require("fs").writeFileSync(filePath, media.data, "base64");
+    // 📂 Prepare directories
+    const customerId = stateData.customer?.id || 'unknown_customer';
+    const orderId = stateData.orderId || 'unknown_order';
+    const receiptDir = path.join(
+      'uploads',
+      `business_${businessId}`,
+      'payments',
+      customerId.toString(),
+      orderId.toString(),
+    );
 
-  const fileUrl = `/uploads/business_${businessId}/payments/${customerId}/${orderId}/${fileName}`;
+    fs.mkdirSync(receiptDir, { recursive: true });
 
-  if (stateData.orderId) {
-    const order = await orderRepo.findOneBy({ id: stateData.orderId });
-    if (order) {
-      order.payment_receipt_url = fileUrl;
-      order.payment_status = "pending";
-      await orderRepo.save(order);
+    // 📄 Save file
+    const fileName = `${Date.now()}_${phone}.jpg`;
+    const filePath = path.join(receiptDir, fileName);
+    fs.writeFileSync(filePath, mediaBuffer);
+
+    const fileUrl = `/uploads/business_${businessId}/payments/${customerId}/${orderId}/${fileName}`;
+
+    // 🔄 Update order if exists
+    if (stateData.orderId) {
+      const order = await orderRepo.findOneBy({ id: stateData.orderId });
+      if (order) {
+        order.payment_receipt_url = fileUrl;
+        order.payment_status = 'pending';
+        await orderRepo.save(order);
+      }
     }
-  }
 
-  stateData.receiptPath = fileUrl;
-  stateData.payment_status = "pending";
-  await quickStatsGateway.broadcastStats(businessId);
-  await client.sendMessage(phone, await getBotText(botMessageRepo, businessId, language, "customer_payment_receipt_uploaded"));
-  await saveState(businessId, phone, "", stateData, "post_payment");
+    // 🔄 Update user state
+    stateData.receiptPath = fileUrl;
+    stateData.payment_status = 'pending';
+    await quickStatsGateway.broadcastStats(businessId);
+
+    // ✅ Send confirmation message
+    const uploadedMsg = await getBotText(
+      botMessageRepo,
+      businessId,
+      language,
+      'customer_payment_receipt_uploaded',
+    );
+
+    await sendManager.sendMessage({
+      phone,
+      text: uploadedMsg,
+    });
+
+    await saveState(businessId, phone, '', stateData, 'post_payment');
+  } catch (err) {
+    console.error('❌ Error handling payment receipt:', err);
+
+    const errorMsg = await getBotText(
+      botMessageRepo,
+      businessId,
+      language,
+      'customer_payment_receipt_error',
+    );
+
+    await sendManager.sendMessage({
+      phone,
+      text:
+        errorMsg ||
+        '❌ Something went wrong while uploading your receipt. Please try again.',
+    });
+  }
 }

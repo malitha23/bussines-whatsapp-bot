@@ -4,6 +4,8 @@ import {
   Column,
   ManyToOne,
   OneToMany,
+  OneToOne,
+  JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { ProductCategory } from './product-category.entity';
@@ -16,6 +18,7 @@ import { RolePermission } from './role-permission.entity';
 import { Manager } from './managers.entity';
 import { Staff } from './staff.entity';
 import { WhatsAppSession } from './whatsapp-session.entity';
+import { BusinessSettings } from './business-settings.entity';
 
 @Entity('businesses')
 export class Business {
@@ -70,5 +73,7 @@ export class Business {
   @OneToMany(() => WhatsAppSession, (ws) => ws.business)
   whatsappSessions!: WhatsAppSession[];
 
-
+  @OneToOne(() => BusinessSettings, settings => settings.business)
+  @JoinColumn()
+  settings!: BusinessSettings;
 }

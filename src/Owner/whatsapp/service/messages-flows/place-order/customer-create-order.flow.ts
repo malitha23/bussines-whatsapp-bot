@@ -1,4 +1,4 @@
-import { Client } from "whatsapp-web.js";
+
 import { Repository } from "typeorm";
 import { format } from "date-fns";
 import { BotMessage } from "../../../../../database/entities/bot-messages.entity";
@@ -12,14 +12,15 @@ function formatQuantity(quantity: number, unit?: string) {
 }
 
 export async function createOrder(
-  client: Client,
+  client: any,
   phone: string,
   stateData: any,
   businessId: number,
   language: string,
   orderRepo: Repository<any>,
   itemRepo: Repository<any>,
-  botMessageRepo: Repository<BotMessage>
+  botMessageRepo: Repository<BotMessage>,
+  sendManager: any
 ) {
   try {
     const order = await orderRepo.findOne({
@@ -28,7 +29,10 @@ export async function createOrder(
     });
 
     if (!order) {
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, "order_not_found"));
+      await sendManager.sendMessage({
+        phone,
+        text: await getBotMessage(botMessageRepo, businessId, language, "order_not_found")
+    });
       return;
     }
 
@@ -82,10 +86,16 @@ ${thankYou}
 `;
 
     const formattedPhone = phone.includes("@c.us") ? phone : `${phone}@c.us`;
-    await client.sendMessage(formattedPhone, message.trim());
+     await sendManager.sendMessage({
+      phone:formattedPhone, 
+      text: message.trim()
+    });
 
   } catch (err) {
     console.error("❌ Error sending order text message:", err);
-    await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, "order_confirm_error"));
+    await sendManager.sendMessage({
+      phone, 
+      text: await getBotMessage(botMessageRepo, businessId, language, "order_confirm_error")
+    });
   }
 }

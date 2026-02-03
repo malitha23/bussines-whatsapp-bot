@@ -1,12 +1,12 @@
-import { Client } from 'whatsapp-web.js';
+
 import { IsNull, Repository } from 'typeorm';
 import { Order } from '../../../../../database/entities/order.entity';
 import { BotMessage } from '../../../../../database/entities/bot-messages.entity';
 import { getBotMessage } from '../../../helpers/getBotMessage';
 
-
+ 
 export async function handleUploadPaymentReceipt(
-    client: Client,
+    client: any,
     phone: string,
     businessId: number,
     name: string,
@@ -16,6 +16,7 @@ export async function handleUploadPaymentReceipt(
     sendMainMenu: Function,
     orderRepo: Repository<Order>,
     botMessageRepo: Repository<BotMessage>,
+    sendManager: any
 ) {
 
     // ✅ Go back to main menu
@@ -41,7 +42,7 @@ export async function handleUploadPaymentReceipt(
 
         if (!pendingOrders.length) {
             const msgNoPending = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_no_pending');
-            await client.sendMessage(phone, msgNoPending);
+            await sendManager.sendMessage({phone, text:msgNoPending});
             return;
         }
 
@@ -64,18 +65,18 @@ export async function handleUploadPaymentReceipt(
         // Save orders in state
         await saveUserState(businessId, phone, name, {}, 'select_order_for_receipt_upload');
 
-        await client.sendMessage(phone, msg);
+        await sendManager.sendMessage({phone, text:msg});
         return;
     }
 
     // ✅ Other/help option
     if (cleanText === '2') {
         const msgHelp = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_help');
-        await client.sendMessage(phone, msgHelp);
+        await sendManager.sendMessage({phone, text:msgHelp});
         return;
     }
 
     // Invalid input
     const msgInvalid = await getBotMessage(botMessageRepo, businessId, language, 'upload_receipt_invalid_option');
-    await client.sendMessage(phone, msgInvalid);
+    await sendManager.sendMessage({phone, text:msgInvalid});
 }

@@ -5,7 +5,7 @@ import { OrderItem } from './order-item.entity';
 import { OrderTracking } from './order-tracking.entity';
 
 // ✅ Updated PaymentStatus type to include 'refund'
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refund' | 'partially_refunded';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded' | 'partially_refunded';
 export type DeliveryStatus =
   | 'pending'
   | 'confirmed'
@@ -72,7 +72,7 @@ export class Order {
   // ✅ Updated enum for PaymentStatus
   @Column({
     type: 'enum',
-    enum: ['pending', 'paid', 'failed', 'refund', 'partially_refunded'],
+    enum: ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'],
     default: 'pending',
   })
   payment_status!: PaymentStatus;

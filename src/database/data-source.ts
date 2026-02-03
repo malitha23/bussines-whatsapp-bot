@@ -36,6 +36,7 @@ import { Manager } from './entities/managers.entity';
 import { Staff } from './entities/staff.entity';
 import { TeamActivity } from './entities/team-activity.entity';
 import { OrderTracking } from './entities/order-tracking.entity';
+import { BusinessSettings } from './entities/business-settings.entity';
 
 // === Main Data Source Export ===
 export const AppDataSource = new DataSource({
@@ -75,7 +76,8 @@ export const AppDataSource = new DataSource({
     Manager,
     Staff,
     TeamActivity,
-    OrderTracking
+    OrderTracking,
+    BusinessSettings
   ],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false, // Always false in production

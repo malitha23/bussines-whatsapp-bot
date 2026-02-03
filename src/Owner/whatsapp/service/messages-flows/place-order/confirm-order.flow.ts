@@ -1,12 +1,12 @@
 // src/whatsapp/flows/place-order/confirm-order.flow.ts
-import { Client } from "whatsapp-web.js";
+
 import { Repository } from "typeorm";
 import { BusinessPaymentOption } from "../../../../../database/entities/business-payment-options.entity";
 import { getBotMessage } from "../../../helpers/getBotMessage";
 import { BotMessage } from "../../../../../database/entities/bot-messages.entity";
 
 export async function confirmOrder(
-  client: Client,
+  client: any,
   phone: string,
   text: string,
   stateData: any,
@@ -15,6 +15,7 @@ export async function confirmOrder(
   saveState: Function,
   businessPaymentOptionRepo: Repository<BusinessPaymentOption>,
   botMessageRepo: Repository<BotMessage>,
+  sendManager: any
 ) {
   text = text.trim().toLowerCase();
 
@@ -30,7 +31,7 @@ export async function confirmOrder(
       });
 
       if (!options.length) {
-        await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_no_payment_options'));
+        await sendManager.sendMessage({phone, text:await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_no_payment_options')});
         return;
       }
 
@@ -40,40 +41,40 @@ export async function confirmOrder(
         menuMessage += `${idx + 1}️⃣ ${opt.option_name}\n`;
       });
 
-      await client.sendMessage(phone, menuMessage);
+      await sendManager.sendMessage({phone, text:  menuMessage});
       await saveState(businessId, phone, '', stateData, 'select_payment_method');
       break;
 
     case 'no':
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_canceled'));
+      await sendManager.sendMessage({phone, text:  await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_canceled')});
       await saveState(businessId, phone, '', {}, 'main_menu');
       break;
 
     case '1':
       await saveState(businessId, phone, '', stateData, 'collect_customer_name');
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_name'));
+      await sendManager.sendMessage({phone, text:  await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_name')});
       break;
 
     case '2':
       await saveState(businessId, phone, '', stateData, 'collect_customer_address');
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_address'));
+      await sendManager.sendMessage({phone, text:  await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_address')});
       break;
 
     case '3':
       await saveState(businessId, phone, '', stateData, 'collect_customer_email');
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_email'));
+      await sendManager.sendMessage({phone, text:  await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_email')});
       break;
 
     case '4':
       await saveState(businessId, phone, '', stateData, 'collect_customer_phone');
-      await client.sendMessage(phone, await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_phone'));
+      await sendManager.sendMessage({phone, text:  await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_edit_phone')});
       break;
 
     default:
-      await client.sendMessage(
+      await sendManager.sendMessage({
         phone,
-        await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_invalid_option')
-      );
+        text: await getBotMessage(botMessageRepo, businessId, language, 'confirm_order_invalid_option')
+  });
       break;
   }
 }
