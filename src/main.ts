@@ -18,9 +18,9 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: 'http://localhost:8080',
+    origin: ['http://72.60.209.99:5000', 'http://localhost:8080'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
+    credentials: false,
   });
 
   // Enable validation
@@ -34,6 +34,7 @@ async function bootstrap() {
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
-  await app.listen(3005);
+  // await app.listen(3005);
+  await app.listen(3005, '0.0.0.0');
 }
 bootstrap();
