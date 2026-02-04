@@ -22,6 +22,7 @@ export class WhatsAppClientManager {
 
   private clients = new Map<number, WASocket>();
   private connected = new Set<number>();
+  private keepAliveIntervals = new Map<number, NodeJS.Timeout>();
 
   constructor(
     @InjectRepository(WhatsAppSession)
@@ -85,7 +86,7 @@ export class WhatsAppClientManager {
     });
 
     sock.ev.on('creds.update', saveCreds);
-    this.bindMessageListener(businessId, sock);
+    // this.bindMessageListener(businessId, sock);
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
@@ -107,10 +108,17 @@ export class WhatsAppClientManager {
         this.gateway.sendAuthenticated?.(businessId); // 🔒 optional chaining in case undefined
         this.gateway.sendReady?.(businessId);
 
+        this.bindMessageListener(businessId, sock);
+
+        // 🔥 STEP 2: start keep alive
+        this.startKeepAlive(businessId, sock);
+
         return;
       }
 
       if (connection === 'close') {
+        this.stopKeepAlive(businessId);
+
         const statusCode =
           this.getStatusCode(lastDisconnect?.error) ??
           DisconnectReason.connectionLost;
@@ -175,17 +183,48 @@ export class WhatsAppClientManager {
     return sock;
   }
 
+  private startKeepAlive(businessId: number, sock: WASocket) {
+    this.stopKeepAlive(businessId);
+
+    const interval = setInterval(async () => {
+      try {
+        if (!this.connected.has(businessId)) return;
+
+        // 💓 wakes WhatsApp event stream
+        await sock.sendPresenceUpdate('available');
+
+        this.logger.debug(`💓 Keep-alive OK: ${businessId}`);
+      } catch (err) {
+        this.logger.warn(`⚠️ Keep-alive failed: ${businessId}`);
+
+        this.stopKeepAlive(businessId);
+        this.connected.delete(businessId);
+        this.clients.delete(businessId);
+
+        // auto-recover
+        this.createClient(businessId, '');
+      }
+    }, 45_000); // every 45 seconds
+
+    this.keepAliveIntervals.set(businessId, interval);
+  }
+
   /* ---------------------------------- */
   /* Stop Client                        */
   /* ---------------------------------- */
 
   async stopClient(businessId: number) {
+    this.stopKeepAlive(businessId);
+
     const client = this.clients.get(businessId);
     if (!client) return;
 
     try {
-      await client.logout();
-    } catch {}
+      client.end?.(undefined);
+
+    } catch(err) {
+      this.logger.error(`❌ Failed to end client: ${err}`);
+    }
 
     this.clients.delete(businessId);
     this.connected.delete(businessId);
@@ -244,6 +283,14 @@ export class WhatsAppClientManager {
   /* ---------------------------------- */
   /* Session Cleanup                    */
   /* ---------------------------------- */
+
+  private stopKeepAlive(businessId: number) {
+    const interval = this.keepAliveIntervals.get(businessId);
+    if (interval) {
+      clearInterval(interval);
+      this.keepAliveIntervals.delete(businessId);
+    }
+  }
 
   private getSessionDir(businessId: number): string {
     return path.join(

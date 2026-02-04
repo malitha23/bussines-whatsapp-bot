@@ -571,7 +571,7 @@
     "business_id": "1",
     "language": "en",
     "key_name": "type_0_go_back",
-    "text": "↩️ Type 0 to go back",
+    "text": "↩️ Type 👉(0) to go back",
     "created_at": "2025-11-20 22:36:59.000000",
     "updated_at": "2025-11-20 22:36:59.000000"
   },
@@ -580,7 +580,7 @@
     "business_id": "1",
     "language": "si",
     "key_name": "type_0_go_back",
-    "text": "↩️ ආපසු යාමට 0 ටයිප් කරන්න",
+    "text": "↩️ ආපසු යාමට 👉(0) ටයිප් කරන්න",
     "created_at": "2025-11-20 22:36:59.000000",
     "updated_at": "2025-11-20 22:36:59.000000"
   },
@@ -589,7 +589,7 @@
     "business_id": "1",
     "language": "ta",
     "key_name": "type_0_go_back",
-    "text": "↩️ திரும்ப 0 தட்டச்சு செய்யவும்",
+    "text": "↩️ திரும்ப 👉(0) தட்டச்சு செய்யவும்",
     "created_at": "2025-11-20 22:36:59.000000",
     "updated_at": "2025-11-20 22:36:59.000000"
   },
@@ -922,7 +922,7 @@
     "business_id": "1",
     "language": "en",
     "key_name": "product_file_enter_product_number",
-    "text": "➡️ Type item number for options or 0 to go back.",
+    "text": "➡️ Type the item number to see options, or type 👉(0) to go back.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -931,7 +931,7 @@
     "business_id": "1",
     "language": "si",
     "key_name": "product_file_enter_product_number",
-    "text": "➡️ විකල්ප බලන්න භාණ්ඩ අංකය ටයිප් කරන්න, නැතිනම් ආපසු 0.",
+    "text": "➡️ විකල්ප බලන්න භාණ්ඩ අංකය ටයිප් කරන්න, නැතිනම් ආපසු යාමට 👉(0) ලෙස ටයිප් කරන්න.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -940,7 +940,7 @@
     "business_id": "1",
     "language": "ta",
     "key_name": "product_file_enter_product_number",
-    "text": "➡️ விருப்பங்கள் பார்க்க பொருள் எண்ணை தட்டச்சு செய்யவும், அல்லது திரும்ப 0.",
+    "text": "➡️ விருப்பங்களைப் பார்க்க உருப்படி எண்ணை உள்ளிடவும் அல்லது திரும்பிச் செல்ல 👉(0) என உள்ளிடவும்.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -949,7 +949,7 @@
     "business_id": "1",
     "language": "en",
     "key_name": "product_file_enter_variant_number",
-    "text": "➡️ Type option number to choose or 0 to go back.",
+    "text": "➡️ Type the option number to select, or type 👉(0) to go back.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -958,7 +958,7 @@
     "business_id": "1",
     "language": "si",
     "key_name": "product_file_enter_variant_number",
-    "text": "➡️ තෝරා ගැනීමට විකල්ප අංකය ටයිප් කරන්න, නැතිනම් ආපසු 0.",
+    "text": "➡️ තෝරා ගැනීමට විකල්ප අංකය ටයිප් කරන්න, නැතිනම් ආපසු යාමට 👉(0) ලෙස ටයිප් කරන්න.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -967,7 +967,7 @@
     "business_id": "1",
     "language": "ta",
     "key_name": "product_file_enter_variant_number",
-    "text": "➡️ தேர்வு செய்ய விருப்ப எண்ணை தட்டச்சு செய்யவும், அல்லது திரும்ப 0.",
+    "text": "➡️ தேர்ந்தெடுக்க விருப்ப எண்ணை உள்ளிடவும், அல்லது திரும்பிச் செல்ல 👉(0) என உள்ளிடவும்.",
     "created_at": "2025-11-21 00:13:19.000000",
     "updated_at": "2025-11-21 00:13:19.000000"
   },
@@ -3325,7 +3325,7 @@
     "business_id": "1",
     "language": "en",
     "key_name": "cancellation_invalid_order",
-    "text": "❌ Wrong order number. Try again or type 0 to go back.",
+    "text": "❌ Your order number is incorrect. Try again or type 👉(0) to go back.",
     "created_at": "2025-11-23 02:43:45.000000",
     "updated_at": "2025-11-23 02:43:45.000000"
   },
@@ -3334,7 +3334,7 @@
     "business_id": "1",
     "language": "si",
     "key_name": "cancellation_invalid_order",
-    "text": "❌ වැරදි ඇණවුම් අංකය. නැවත උත්සාහ කරන්න හෝ ආපසු 0 ටයිප් කරන්න.",
+    "text": "❌ ඔබේ ඇණවුම් අංකය වැරදියි. නැවත උත්සාහ කරන්න හෝ ආපසු යාමට 👉(0) ලෙස ටයිප් කරන්න.",
     "created_at": "2025-11-23 02:43:45.000000",
     "updated_at": "2025-11-23 02:43:45.000000"
   },
@@ -3343,7 +3343,7 @@
     "business_id": "1",
     "language": "ta",
     "key_name": "cancellation_invalid_order",
-    "text": "❌ தவறான ஆர்டர் எண். மீண்டும் முயற்சிக்கவும் அல்லது திரும்ப 0 தட்டச்சு செய்யவும்.",
+    "text": "❌ உங்கள் ஆர்டர் எண் தவறானது. மீண்டும் முயற்சிக்கவும் அல்லது திரும்பிச் செல்ல 👉(0) என தட்டச்சு செய்யவும்.",
     "created_at": "2025-11-23 02:43:45.000000",
     "updated_at": "2025-11-23 02:43:45.000000"
   },

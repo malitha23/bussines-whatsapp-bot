@@ -97,7 +97,7 @@ export class AuthService {
         phone: registerDto.phone || '',
         address: registerDto.address,
         owner: user,
-        is_active: false
+        is_active: true
       });
     }
 
